@@ -1,5 +1,9 @@
-﻿using MeetingBackend.Models;
+﻿using MeetingBackend.Data;
+using MeetingBackend.Models;
 using MeetingBackend.Services;
+using Microsoft.EntityFrameworkCore;
+
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +19,13 @@ builder.Services.Configure<LiveKitOptions>(
     builder.Configuration.GetSection("LiveKit"));
 
 builder.Services.AddSingleton<LiveKitTokenService>();
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(
+        builder.Configuration.GetConnectionString("DefaultConnection")
+    )
+);
+
 
 // CORS (cho frontend gọi)
 builder.Services.AddCors(options =>

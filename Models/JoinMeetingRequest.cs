@@ -1,6 +1,6 @@
 ﻿namespace MeetingBackend.Models;
 
 public record JoinMeetingRequest(
-    string Room,
+    Guid MeetingId,
     string Identity
 );
