@@ -25,14 +25,17 @@ public class MeetingController : ControllerBase
         _config = config;
     }
 
-    // ✅ CREATE MEETING
+  
     [HttpPost("create")]
-    public async Task<IActionResult> Create([FromBody] CreateMeetingRequest req)
+    public async Task<IActionResult> Create([FromBody] CreateMeetingRequest request)
     {
         var meeting = new Meeting
         {
-            RoomName = $"room-{Guid.NewGuid()}",
-            HostIdentity = req.HostIdentity
+            Id = Guid.NewGuid(),
+            Title = request.Title,
+            HostName = request.HostName,
+            RoomName = Guid.NewGuid().ToString(),
+            CreatedAt = DateTime.UtcNow
         };
 
         _db.Meetings.Add(meeting);
@@ -45,7 +48,7 @@ public class MeetingController : ControllerBase
         });
     }
 
-    // ✅ JOIN MEETING
+    
     [HttpPost("join")]
     public async Task<IActionResult> Join([FromBody] JoinMeetingRequest req)
     {
