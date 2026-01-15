@@ -8,6 +8,8 @@ public class Meeting
 
     public string HostName { get; set; } = string.Empty;
 
+    public string HostIdentity { get; set; } = string.Empty;
+
     public string RoomName { get; set; } = Guid.NewGuid().ToString();
 
     public DateTime CreatedAt { get; set; }

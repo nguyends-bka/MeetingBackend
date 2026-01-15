@@ -34,6 +34,7 @@ public class MeetingController : ControllerBase
             Id = Guid.NewGuid(),
             Title = request.Title,
             HostName = request.HostName,
+            HostIdentity = request.HostIdentity,
             RoomName = Guid.NewGuid().ToString(),
             CreatedAt = DateTime.UtcNow
         };
