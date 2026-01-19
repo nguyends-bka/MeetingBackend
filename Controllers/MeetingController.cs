@@ -31,6 +31,7 @@ public class MeetingController : ControllerBase
         _codeService = codeService;
     }
 
+<<<<<<< HEAD
     // Helper method để ghi lại lịch sử vào meeting
     private async Task<MeetingParticipant> RecordJoinAsync(Guid meetingId, string userId, string username)
     {
@@ -54,6 +55,15 @@ public class MeetingController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Create(CreateMeetingRequest request)
     {
+=======
+    // ==========================
+    // ADMIN TẠO MEETING
+    // ==========================
+    [HttpPost("create")]
+    [Authorize]
+    public async Task<IActionResult> Create(CreateMeetingRequest request)
+    {
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
 
@@ -110,10 +120,13 @@ public class MeetingController : ControllerBase
         // 🔐 LẤY IDENTITY TỪ JWT (KHÔNG TIN CLIENT)
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
+<<<<<<< HEAD
         var username = User.FindFirstValue("username") ?? "Unknown";
 
         // Ghi lại lịch sử vào meeting
         var participant = await RecordJoinAsync(meeting.Id, userId!, username);
+=======
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
@@ -126,8 +139,12 @@ public class MeetingController : ControllerBase
             liveKitUrl = _config["LiveKit:Url"],
             roomName = meeting.RoomName,
             meetingId = meeting.Id,
+<<<<<<< HEAD
             meetingCode = meeting.MeetingCode,
             participantId = participant.Id
+=======
+            meetingCode = meeting.MeetingCode
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
         });
     }
 
@@ -164,10 +181,13 @@ public class MeetingController : ControllerBase
         // 🔐 LẤY IDENTITY TỪ JWT (KHÔNG TIN CLIENT)
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
+<<<<<<< HEAD
         var username = User.FindFirstValue("username") ?? "Unknown";
 
         // Ghi lại lịch sử vào meeting
         var participant = await RecordJoinAsync(meeting.Id, userId!, username);
+=======
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
@@ -180,8 +200,12 @@ public class MeetingController : ControllerBase
             liveKitUrl = _config["LiveKit:Url"],
             roomName = meeting.RoomName,
             meetingId = meeting.Id,
+<<<<<<< HEAD
             meetingCode = meeting.MeetingCode,
             participantId = participant.Id
+=======
+            meetingCode = meeting.MeetingCode
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
         });
     }
 
@@ -209,10 +233,13 @@ public class MeetingController : ControllerBase
         // 🔐 LẤY IDENTITY TỪ JWT (KHÔNG TIN CLIENT)
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
+<<<<<<< HEAD
         var username = User.FindFirstValue("username") ?? "Unknown";
 
         // Ghi lại lịch sử vào meeting
         var participant = await RecordJoinAsync(meeting.Id, userId!, username);
+=======
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
@@ -226,8 +253,12 @@ public class MeetingController : ControllerBase
             roomName = meeting.RoomName,
             meetingId = meeting.Id,
             meetingCode = meeting.MeetingCode,
+<<<<<<< HEAD
             title = meeting.Title,
             participantId = participant.Id
+=======
+            title = meeting.Title
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
         });
     }
 
@@ -263,6 +294,7 @@ public class MeetingController : ControllerBase
 
         return Ok(meetings);
     }
+<<<<<<< HEAD
 
     // ==========================
     // GHI LẠI KHI USER LEAVE MEETING
@@ -329,4 +361,6 @@ public class MeetingController : ControllerBase
 
         return Ok(history);
     }
+=======
+>>>>>>> d870686181126158e1dca947c8b46b4652d1406e
 }
