@@ -8,9 +8,13 @@ public class Meeting
 
     public string HostName { get; set; } = string.Empty;
 
-    public string HostIdentity { get; set; } = string.Empty;
+    public string HostIdentity { get; set; } = string.Empty;  
 
     public string RoomName { get; set; } = Guid.NewGuid().ToString();
+
+    public string MeetingCode { get; set; } = string.Empty; // Code ngắn để share (6-8 ký tự)
+
+    public string Passcode { get; set; } = string.Empty; // Mật khẩu để tham gia (4-6 chữ số)
 
     public DateTime CreatedAt { get; set; }
 }

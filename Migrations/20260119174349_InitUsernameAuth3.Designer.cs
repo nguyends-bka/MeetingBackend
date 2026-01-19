@@ -3,6 +3,7 @@ using System;
 using MeetingBackend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MeetingBackend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260119174349_InitUsernameAuth3")]
+    partial class InitUsernameAuth3
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -36,14 +39,6 @@ namespace MeetingBackend.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("HostName")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("MeetingCode")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Passcode")
                         .IsRequired()
                         .HasColumnType("text");
 
