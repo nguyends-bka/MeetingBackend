@@ -10,7 +10,6 @@ namespace MeetingBackend.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-<<<<<<< HEAD
             // Check if column already exists before adding
             migrationBuilder.Sql(@"
                 DO $$
@@ -23,14 +22,6 @@ namespace MeetingBackend.Migrations
                     END IF;
                 END $$;
             ");
-=======
-            migrationBuilder.AddColumn<string>(
-                name: "Passcode",
-                table: "Meetings",
-                type: "text",
-                nullable: false,
-                defaultValue: "");
->>>>>>> d870686181126158e1dca947c8b46b4652d1406e
         }
 
         /// <inheritdoc />
