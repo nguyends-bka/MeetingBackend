@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using MeetingBackend.Data;
 using MeetingBackend.Models;
 using MeetingBackend.Services;
@@ -92,6 +92,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             )
         };
     });
+
+// =======================
+// Authorization Policies
+// =======================
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("UserOrAdmin", policy => policy.RequireRole("User", "Admin"));
+});
 
 // =======================
 // CORS (Frontend Next.js)

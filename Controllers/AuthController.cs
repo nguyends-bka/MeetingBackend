@@ -1,6 +1,7 @@
-﻿using BCrypt.Net;
+using BCrypt.Net;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using MeetingBackend.Constants;
 using MeetingBackend.Data;
 using MeetingBackend.Entities;
 using MeetingBackend.Models;
@@ -25,14 +26,16 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Register(RegisterRequest req)
     {
         if (await _db.Users.AnyAsync(u => u.Username == req.Username))
-            return BadRequest("Username already exists");
+            return BadRequest(new { message = "Tên đăng nhập đã tồn tại. Vui lòng chọn tên khác." });
 
         var user = new User
         {
             Id = Guid.NewGuid(),
             Username = req.Username,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
-            Role = "User"
+            Role = Roles.User,
+            FullName = string.IsNullOrWhiteSpace(req.FullName) ? null : req.FullName.Trim(),
+            Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim().ToLower()
         };
 
         _db.Users.Add(user);
@@ -52,10 +55,10 @@ public class AuthController : ControllerBase
             .FirstOrDefaultAsync(u => u.Username == req.Username);
 
         if (user == null)
-            return Unauthorized();
+            return Unauthorized(new { message = "Tên đăng nhập hoặc mật khẩu không đúng" });
 
         if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
-            return Unauthorized();
+            return Unauthorized(new { message = "Tên đăng nhập hoặc mật khẩu không đúng" });
 
         var token = _jwt.CreateToken(user);
 

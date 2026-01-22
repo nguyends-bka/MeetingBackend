@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -34,6 +34,24 @@ public class MeetingController : ControllerBase
     // Helper method để ghi lại lịch sử vào meeting
     private async Task<MeetingParticipant> RecordJoinAsync(Guid meetingId, string userId, string username)
     {
+        // Nếu user đang có session active trong meeting này, không tạo thêm record mới
+        var existingActive = await _db.MeetingParticipants
+            .FirstOrDefaultAsync(p =>
+                p.MeetingId == meetingId &&
+                p.UserId == userId &&
+                p.LeftAt == null);
+
+        if (existingActive != null)
+        {
+            // Đồng bộ username (phòng trường hợp username thay đổi)
+            if (!string.Equals(existingActive.Username, username, StringComparison.Ordinal))
+            {
+                existingActive.Username = username;
+                await _db.SaveChangesAsync();
+            }
+            return existingActive;
+        }
+
         var participant = new MeetingParticipant
         {
             Id = Guid.NewGuid(),
@@ -48,10 +66,10 @@ public class MeetingController : ControllerBase
     }
 
     // ==========================
-    // ADMIN TẠO MEETING
+    // USER/ADMIN TẠO MEETING
     // ==========================
     [HttpPost("create")]
-    [Authorize]
+    [Authorize(Roles = "User,Admin")]
     public async Task<IActionResult> Create(CreateMeetingRequest request)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
@@ -229,23 +247,32 @@ public class MeetingController : ControllerBase
     }
 
     // ==========================
-    // LẤY DANH SÁCH MEETING CỦA USER HIỆN TẠI
+    // LẤY DANH SÁCH MEETING
+    // User: chỉ thấy meeting của mình
+    // Admin: thấy tất cả meetings
     // ==========================
     [HttpGet]
     public async Task<IActionResult> GetMeetings()
     {
-        // Lấy userId từ JWT token
+        // Lấy userId và role từ JWT token
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
 
         if (string.IsNullOrEmpty(userId))
         {
             return Unauthorized("User identity not found");
         }
 
-        // Chỉ lấy các meeting do user hiện tại tạo
-        var meetings = await _db.Meetings
-            .Where(m => m.HostIdentity == userId)
+        IQueryable<Meeting> query = _db.Meetings;
+
+        // Nếu không phải Admin, chỉ lấy meeting của user hiện tại
+        if (userRole != "Admin")
+        {
+            query = query.Where(m => m.HostIdentity == userId);
+        }
+
+        var meetings = await query
             .OrderByDescending(m => m.CreatedAt)
             .Select(m => new
             {
@@ -271,24 +298,50 @@ public class MeetingController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
 
-        // Tìm participant record chưa có LeftAt
-        var participant = await _db.MeetingParticipants
-            .FirstOrDefaultAsync(p => 
-                p.Id == req.ParticipantId && 
-                p.UserId == userId && 
-                p.LeftAt == null);
+        // Ưu tiên dùng MeetingId để đóng TẤT CẢ session active trong meeting
+        var meetingId = req.MeetingId;
 
-        if (participant != null)
+        // Fallback: nếu client không gửi MeetingId, thử suy ra từ ParticipantId
+        if (meetingId == Guid.Empty && req.ParticipantId != Guid.Empty)
         {
-            participant.LeftAt = DateTime.UtcNow;
+            meetingId = await _db.MeetingParticipants
+                .Where(p => p.Id == req.ParticipantId && p.UserId == userId)
+                .Select(p => p.MeetingId)
+                .FirstOrDefaultAsync();
+        }
+
+        if (meetingId == Guid.Empty)
+        {
+            return BadRequest("MeetingId is required");
+        }
+
+        var now = DateTime.UtcNow;
+
+        // Đóng tất cả session active của user trong meeting này (khắc phục duplicate 'Đang tham gia')
+        var actives = await _db.MeetingParticipants
+            .Where(p =>
+                p.MeetingId == meetingId &&
+                p.UserId == userId &&
+                p.LeftAt == null)
+            .ToListAsync();
+
+        foreach (var p in actives)
+        {
+            p.LeftAt = now;
+        }
+
+        if (actives.Count > 0)
+        {
             await _db.SaveChangesAsync();
         }
 
-        return Ok(new { message = "Left meeting successfully" });
+        return Ok(new { message = "Left meeting successfully", updatedCount = actives.Count });
     }
 
     // ==========================
     // XEM LỊCH SỬ VÀO/RA CỦA MEETING
+    // Host: chỉ xem được meeting của mình
+    // Admin: xem được tất cả meetings
     // ==========================
     [HttpGet("{meetingId}/history")]
     [Authorize]
@@ -296,6 +349,7 @@ public class MeetingController : ControllerBase
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
 
         // Kiểm tra user có phải host không
         var meeting = await _db.Meetings
@@ -304,9 +358,9 @@ public class MeetingController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
 
-        // Chỉ host mới xem được lịch sử
-        if (meeting.HostIdentity != userId)
-            return Unauthorized("Only meeting host can view history");
+        // Chỉ host hoặc Admin mới xem được lịch sử
+        if (userRole != "Admin" && meeting.HostIdentity != userId)
+            return Unauthorized("Only meeting host or Admin can view history");
 
         var history = await _db.MeetingParticipants
             .Where(p => p.MeetingId == meetingId)
@@ -322,6 +376,48 @@ public class MeetingController : ControllerBase
                     ? (p.LeftAt.Value - p.JoinedAt).TotalMinutes 
                     : (double?)null
             })
+            .ToListAsync();
+
+        return Ok(history);
+    }
+
+    // ==========================
+    // LẤY LỊCH SỬ THAM GIA CỦA USER HIỆN TẠI
+    // ==========================
+    [HttpGet("my-history")]
+    [Authorize]
+    public async Task<IActionResult> GetMyHistory()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+
+        if (string.IsNullOrEmpty(userId))
+        {
+            return Unauthorized("User identity not found");
+        }
+
+        var history = await _db.MeetingParticipants
+            .Where(p => p.UserId == userId)
+            .Join(
+                _db.Meetings,
+                participant => participant.MeetingId,
+                meeting => meeting.Id,
+                (participant, meeting) => new
+                {
+                    participant.Id,
+                    participant.MeetingId,
+                    MeetingTitle = meeting.Title,
+                    participant.Username,
+                    participant.JoinedAt,
+                    participant.LeftAt,
+                    Duration = participant.LeftAt.HasValue
+                        ? (participant.LeftAt.Value - participant.JoinedAt).TotalMinutes
+                        : (double?)null,
+                    MeetingCode = meeting.MeetingCode,
+                    HostName = meeting.HostName
+                }
+            )
+            .OrderByDescending(h => h.JoinedAt)
             .ToListAsync();
 
         return Ok(history);
