@@ -3,8 +3,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using MeetingBackend.Constants;
 using MeetingBackend.Data;
+using MeetingBackend.DTOs.Auth;
 using MeetingBackend.Entities;
-using MeetingBackend.Models;
+using MeetingBackend.Mappers;
 using MeetingBackend.Services;
 
 namespace MeetingBackend.Controllers;
@@ -23,7 +24,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("register")]
-    public async Task<IActionResult> Register(RegisterRequest req)
+    public async Task<IActionResult> Register(RegisterRequestDto req)
     {
         if (await _db.Users.AnyAsync(u => u.Username == req.Username))
             return BadRequest(new { message = "Tên đăng nhập đã tồn tại. Vui lòng chọn tên khác." });
@@ -41,15 +42,11 @@ public class AuthController : ControllerBase
         _db.Users.Add(user);
         await _db.SaveChangesAsync();
 
-        // Trả về JSON response giống login để frontend có thể parse
-        return Ok(new
-        {
-            message = "Registration successful"
-        });
+        return Ok(new { message = "Registration successful" });
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login(LoginRequest req)
+    public async Task<IActionResult> Login(LoginRequestDto req)
     {
         var user = await _db.Users
             .FirstOrDefaultAsync(u => u.Username == req.Username);
@@ -60,17 +57,15 @@ public class AuthController : ControllerBase
         if (!BCrypt.Net.BCrypt.Verify(req.Password, user.PasswordHash))
             return Unauthorized(new { message = "Tên đăng nhập hoặc mật khẩu không đúng" });
 
+        // JWT includes role dynamically from database
         var token = _jwt.CreateToken(user);
 
-        return Ok(new
+        var response = new LoginResponseDto
         {
-            token,
-            user = new
-            {
-                user.Id,
-                user.Username,
-                user.Role
-            }
-        });
+            Token = token,
+            User = UserMapper.ToAuthUserDto(user)
+        };
+
+        return Ok(response);
     }
 }

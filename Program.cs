@@ -2,7 +2,9 @@ using System.Text;
 using MeetingBackend.Data;
 using MeetingBackend.Models;
 using MeetingBackend.Services;
+using MeetingBackend.Policies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -94,13 +96,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 // =======================
-// Authorization Policies
+// Authorization Policies (Dynamic, database-driven)
 // =======================
 builder.Services.AddAuthorization(options =>
 {
-    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
-    options.AddPolicy("UserOrAdmin", policy => policy.RequireRole("User", "Admin"));
+    AuthorizationPolicies.ConfigurePolicies(options);
 });
+
+// Register authorization handlers for dynamic role checking
+builder.Services.AddScoped<IAuthorizationHandler, RoleAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, MeetingHostAuthorizationHandler>();
 
 // =======================
 // CORS (Frontend Next.js)
@@ -123,7 +128,11 @@ var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseHttpsRedirection();
+// HTTPS redirection - chỉ bật trong production
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors("AllowAll");
 

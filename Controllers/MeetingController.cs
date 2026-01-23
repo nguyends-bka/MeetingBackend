@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using MeetingBackend.Data;
+using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
-using MeetingBackend.Models;
+using MeetingBackend.Mappers;
+using MeetingBackend.Policies;
 using MeetingBackend.Services;
 
 namespace MeetingBackend.Controllers;
@@ -69,8 +71,8 @@ public class MeetingController : ControllerBase
     // USER/ADMIN TẠO MEETING
     // ==========================
     [HttpPost("create")]
-    [Authorize(Roles = "User,Admin")]
-    public async Task<IActionResult> Create(CreateMeetingRequest request)
+    [Authorize(Policy = AuthorizationPolicies.UserOrAdmin)]
+    public async Task<IActionResult> Create(CreateMeetingRequestDto request)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
@@ -98,20 +100,22 @@ public class MeetingController : ControllerBase
         _db.Meetings.Add(meeting);
         await _db.SaveChangesAsync();
 
-        return Ok(new
+        var response = new CreateMeetingResponseDto
         {
-            meetingId = meeting.Id,
-            meetingCode = meeting.MeetingCode,
-            passcode = meeting.Passcode,
-            roomName = meeting.RoomName
-        });
+            MeetingId = meeting.Id,
+            MeetingCode = meeting.MeetingCode,
+            Passcode = meeting.Passcode,
+            RoomName = meeting.RoomName
+        };
+
+        return Ok(response);
     }
 
     // ==========================
     // JOIN MEETING BY LINK (KHÔNG CẦN PASSCODE)
     // ==========================
     [HttpPost("join-by-link")]
-    public async Task<IActionResult> JoinByLink([FromBody] JoinByLinkRequest req)
+    public async Task<IActionResult> JoinByLink([FromBody] JoinByLinkRequestDto req)
     {
         if (req.MeetingId == Guid.Empty)
             return BadRequest("Meeting ID is required");
@@ -135,22 +139,24 @@ public class MeetingController : ControllerBase
             userId!
         );
 
-        return Ok(new
+        var response = new JoinMeetingResponseDto
         {
-            token,
-            liveKitUrl = _config["LiveKit:Url"],
-            roomName = meeting.RoomName,
-            meetingId = meeting.Id,
-            meetingCode = meeting.MeetingCode,
-            participantId = participant.Id
-        });
+            Token = token,
+            LiveKitUrl = _config["LiveKit:Url"]!,
+            RoomName = meeting.RoomName,
+            MeetingId = meeting.Id,
+            MeetingCode = meeting.MeetingCode,
+            ParticipantId = participant.Id
+        };
+
+        return Ok(response);
     }
 
     // ==========================
     // JOIN MEETING BY ID/CODE + PASSCODE
     // ==========================
     [HttpPost("join")]
-    public async Task<IActionResult> Join(JoinMeetingRequest req)
+    public async Task<IActionResult> Join(JoinMeetingRequestDto req)
     {
         Meeting? meeting = null;
 
@@ -189,22 +195,24 @@ public class MeetingController : ControllerBase
             userId!
         );
 
-        return Ok(new
+        var response = new JoinMeetingResponseDto
         {
-            token,
-            liveKitUrl = _config["LiveKit:Url"],
-            roomName = meeting.RoomName,
-            meetingId = meeting.Id,
-            meetingCode = meeting.MeetingCode,
-            participantId = participant.Id
-        });
+            Token = token,
+            LiveKitUrl = _config["LiveKit:Url"]!,
+            RoomName = meeting.RoomName,
+            MeetingId = meeting.Id,
+            MeetingCode = meeting.MeetingCode,
+            ParticipantId = participant.Id
+        };
+
+        return Ok(response);
     }
 
     // ==========================
     // USER JOIN MEETING BY CODE
     // ==========================
     [HttpPost("join-by-code")]
-    public async Task<IActionResult> JoinByCode([FromBody] JoinByCodeRequest req)
+    public async Task<IActionResult> JoinByCode([FromBody] JoinMeetingRequestDto req)
     {
         if (string.IsNullOrEmpty(req.MeetingCode))
             return BadRequest("Meeting code is required");
@@ -274,18 +282,10 @@ public class MeetingController : ControllerBase
 
         var meetings = await query
             .OrderByDescending(m => m.CreatedAt)
-            .Select(m => new
-            {
-                m.Id,
-                m.Title,
-                m.HostName,
-                m.MeetingCode,
-                m.Passcode,
-                m.CreatedAt
-            })
             .ToListAsync();
 
-        return Ok(meetings);
+        var response = meetings.Select(MeetingMapper.ToMeetingListItemDto).ToList();
+        return Ok(response);
     }
 
     // ==========================
@@ -293,19 +293,19 @@ public class MeetingController : ControllerBase
     // ==========================
     [HttpPost("leave")]
     [Authorize]
-    public async Task<IActionResult> Leave([FromBody] LeaveMeetingRequest req)
+    public async Task<IActionResult> Leave([FromBody] LeaveMeetingRequestDto req)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
 
         // Ưu tiên dùng MeetingId để đóng TẤT CẢ session active trong meeting
-        var meetingId = req.MeetingId;
+        var meetingId = req.MeetingId ?? Guid.Empty;
 
         // Fallback: nếu client không gửi MeetingId, thử suy ra từ ParticipantId
-        if (meetingId == Guid.Empty && req.ParticipantId != Guid.Empty)
+        if (meetingId == Guid.Empty && req.ParticipantId.HasValue)
         {
             meetingId = await _db.MeetingParticipants
-                .Where(p => p.Id == req.ParticipantId && p.UserId == userId)
+                .Where(p => p.Id == req.ParticipantId.Value && p.UserId == userId)
                 .Select(p => p.MeetingId)
                 .FirstOrDefaultAsync();
         }
@@ -335,7 +335,13 @@ public class MeetingController : ControllerBase
             await _db.SaveChangesAsync();
         }
 
-        return Ok(new { message = "Left meeting successfully", updatedCount = actives.Count });
+        var response = new LeaveMeetingResponseDto
+        {
+            Message = "Left meeting successfully",
+            UpdatedCount = actives.Count
+        };
+
+        return Ok(response);
     }
 
     // ==========================
@@ -362,22 +368,12 @@ public class MeetingController : ControllerBase
         if (userRole != "Admin" && meeting.HostIdentity != userId)
             return Unauthorized("Only meeting host or Admin can view history");
 
-        var history = await _db.MeetingParticipants
+        var participants = await _db.MeetingParticipants
             .Where(p => p.MeetingId == meetingId)
             .OrderByDescending(p => p.JoinedAt)
-            .Select(p => new
-            {
-                p.Id,
-                p.Username,
-                p.UserId,
-                p.JoinedAt,
-                p.LeftAt,
-                Duration = p.LeftAt.HasValue 
-                    ? (p.LeftAt.Value - p.JoinedAt).TotalMinutes 
-                    : (double?)null
-            })
             .ToListAsync();
 
+        var history = participants.Select(MeetingMapper.ToMeetingHistoryItemDto).ToList();
         return Ok(history);
     }
 
@@ -402,17 +398,17 @@ public class MeetingController : ControllerBase
                 _db.Meetings,
                 participant => participant.MeetingId,
                 meeting => meeting.Id,
-                (participant, meeting) => new
+                (participant, meeting) => new MyHistoryItemDto
                 {
-                    participant.Id,
-                    participant.MeetingId,
+                    Id = participant.Id,
+                    MeetingId = participant.MeetingId,
                     MeetingTitle = meeting.Title,
-                    participant.Username,
-                    participant.JoinedAt,
-                    participant.LeftAt,
+                    Username = participant.Username,
+                    JoinedAt = participant.JoinedAt,
+                    LeftAt = participant.LeftAt,
                     Duration = participant.LeftAt.HasValue
                         ? (participant.LeftAt.Value - participant.JoinedAt).TotalMinutes
-                        : (double?)null,
+                        : null,
                     MeetingCode = meeting.MeetingCode,
                     HostName = meeting.HostName
                 }

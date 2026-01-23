@@ -4,8 +4,9 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using MeetingBackend.Data;
+using MeetingBackend.DTOs.User;
 using MeetingBackend.Entities;
-using MeetingBackend.Models;
+using MeetingBackend.Mappers;
 
 namespace MeetingBackend.Controllers;
 
@@ -34,29 +35,20 @@ public class UserController : ControllerBase
             return Unauthorized("User identity not found");
 
         var user = await _db.Users
-            .Where(u => u.Id.ToString() == userId)
-            .Select(u => new
-            {
-                u.Id,
-                u.Username,
-                u.Role,
-                u.FullName,
-                u.Email,
-                u.CreatedAt
-            })
-            .FirstOrDefaultAsync();
+            .FirstOrDefaultAsync(u => u.Id.ToString() == userId);
 
         if (user == null)
             return NotFound("User not found");
 
-        return Ok(user);
+        var response = UserMapper.ToUserProfileDto(user);
+        return Ok(response);
     }
 
     // ==========================
     // CẬP NHẬT THÔNG TIN CÁ NHÂN (FullName, Email)
     // ==========================
     [HttpPut("profile")]
-    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request)
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequestDto request)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
@@ -87,25 +79,20 @@ public class UserController : ControllerBase
 
         await _db.SaveChangesAsync();
 
-        return Ok(new
+        var response = new UpdateProfileResponseDto
         {
-            message = "Cập nhật thông tin thành công",
-            user = new
-            {
-                user.Id,
-                user.Username,
-                user.Role,
-                user.FullName,
-                user.Email
-            }
-        });
+            Message = "Cập nhật thông tin thành công",
+            User = UserMapper.ToUserDto(user)
+        };
+
+        return Ok(response);
     }
 
     // ==========================
     // ĐỔI MẬT KHẨU
     // ==========================
     [HttpPut("profile/password")]
-    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestDto request)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
@@ -136,6 +123,11 @@ public class UserController : ControllerBase
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         await _db.SaveChangesAsync();
 
-        return Ok(new { message = "Đổi mật khẩu thành công" });
+        var response = new ChangePasswordResponseDto
+        {
+            Message = "Đổi mật khẩu thành công"
+        };
+
+        return Ok(response);
     }
 }

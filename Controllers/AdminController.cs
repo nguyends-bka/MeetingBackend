@@ -4,14 +4,16 @@ using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using MeetingBackend.Constants;
 using MeetingBackend.Data;
+using MeetingBackend.DTOs.Admin;
 using MeetingBackend.Entities;
-using MeetingBackend.Models;
+using MeetingBackend.Mappers;
+using MeetingBackend.Policies;
 
 namespace MeetingBackend.Controllers;
 
 [ApiController]
 [Route("api/admin")]
-[Authorize(Roles = Roles.Admin)] // Chỉ Admin mới truy cập được
+[Authorize(Policy = AuthorizationPolicies.AdminOnly)] // Dynamic role check from database
 public class AdminController : ControllerBase
 {
     private readonly AppDbContext _db;
@@ -29,23 +31,24 @@ public class AdminController : ControllerBase
     {
         var users = await _db.Users
             .OrderByDescending(u => u.CreatedAt)
-            .Select(u => new
-            {
-                u.Id,
-                u.Username,
-                u.Role,
-                u.CreatedAt
-            })
             .ToListAsync();
 
-        return Ok(users);
+        var response = users.Select(u => new AdminUserDto
+        {
+            Id = u.Id,
+            Username = u.Username,
+            Role = u.Role,
+            CreatedAt = u.CreatedAt
+        }).ToList();
+
+        return Ok(response);
     }
 
     // ==========================
     // CẬP NHẬT ROLE CỦA USER
     // ==========================
     [HttpPut("users/{userId}/role")]
-    public async Task<IActionResult> UpdateUserRole(Guid userId, [FromBody] UpdateUserRoleRequest request)
+    public async Task<IActionResult> UpdateUserRole(Guid userId, [FromBody] UpdateUserRoleRequestDto request)
     {
         if (string.IsNullOrEmpty(request.Role) || 
             (request.Role != Roles.Admin && request.Role != Roles.User))
@@ -68,16 +71,18 @@ public class AdminController : ControllerBase
         user.Role = request.Role;
         await _db.SaveChangesAsync();
 
-        return Ok(new
+        var response = new UpdateUserRoleResponseDto
         {
-            message = "Cập nhật role thành công",
-            user = new
+            Message = "Cập nhật role thành công",
+            User = new UserRoleDto
             {
-                user.Id,
-                user.Username,
-                user.Role
+                Id = user.Id,
+                Username = user.Username,
+                Role = user.Role
             }
-        });
+        };
+
+        return Ok(response);
     }
 
     // ==========================
@@ -110,7 +115,12 @@ public class AdminController : ControllerBase
         _db.Users.Remove(user);
         await _db.SaveChangesAsync();
 
-        return Ok(new { message = "Xóa user thành công" });
+        var response = new DeleteUserResponseDto
+        {
+            Message = "Xóa user thành công"
+        };
+
+        return Ok(response);
     }
 
     // ==========================
@@ -125,14 +135,16 @@ public class AdminController : ControllerBase
         var totalMeetings = await _db.Meetings.CountAsync();
         var totalParticipants = await _db.MeetingParticipants.CountAsync();
 
-        return Ok(new
+        var response = new AdminStatsDto
         {
-            totalUsers,
-            totalAdmins,
-            totalUsersRole,
-            totalMeetings,
-            totalParticipants
-        });
+            TotalUsers = totalUsers,
+            TotalAdmins = totalAdmins,
+            TotalUsersRole = totalUsersRole,
+            TotalMeetings = totalMeetings,
+            TotalParticipants = totalParticipants
+        };
+
+        return Ok(response);
     }
 
     // ==========================
@@ -143,22 +155,30 @@ public class AdminController : ControllerBase
     {
         var meetings = await _db.Meetings
             .OrderByDescending(m => m.CreatedAt)
-            .Select(m => new
-            {
-                m.Id,
-                m.Title,
-                m.HostName,
-                m.HostIdentity,
-                m.MeetingCode,
-                m.Passcode,
-                m.RoomName,
-                m.CreatedAt,
-                ParticipantCount = _db.MeetingParticipants.Count(p => p.MeetingId == m.Id),
-                ActiveParticipantCount = _db.MeetingParticipants.Count(p => p.MeetingId == m.Id && p.LeftAt == null)
-            })
             .ToListAsync();
 
-        return Ok(meetings);
+        var response = new List<AdminMeetingDto>();
+        foreach (var meeting in meetings)
+        {
+            var participantCount = await _db.MeetingParticipants.CountAsync(p => p.MeetingId == meeting.Id);
+            var activeParticipantCount = await _db.MeetingParticipants.CountAsync(p => p.MeetingId == meeting.Id && p.LeftAt == null);
+
+            response.Add(new AdminMeetingDto
+            {
+                Id = meeting.Id,
+                Title = meeting.Title,
+                HostName = meeting.HostName,
+                HostIdentity = meeting.HostIdentity,
+                MeetingCode = meeting.MeetingCode,
+                Passcode = meeting.Passcode,
+                RoomName = meeting.RoomName,
+                CreatedAt = meeting.CreatedAt,
+                ParticipantCount = participantCount,
+                ActiveParticipantCount = activeParticipantCount
+            });
+        }
+
+        return Ok(response);
     }
 
     // ==========================
@@ -184,6 +204,11 @@ public class AdminController : ControllerBase
         _db.Meetings.Remove(meeting);
         await _db.SaveChangesAsync();
 
-        return Ok(new { message = "Xóa meeting thành công" });
+        var response = new DeleteMeetingResponseDto
+        {
+            Message = "Xóa meeting thành công"
+        };
+
+        return Ok(response);
     }
 }
