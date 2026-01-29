@@ -3,6 +3,7 @@ using MeetingBackend.Data;
 using MeetingBackend.Models;
 using MeetingBackend.Services;
 using MeetingBackend.Policies;
+using MeetingBackend.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -135,6 +136,10 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowAll");
+
+// WebSocket for virtual mic (PCM16) - must be before UseAuthentication for optional token-in-query
+app.UseWebSockets();
+app.UseMiddleware<VirtualMicWebSocketMiddleware>();
 
 app.UseAuthentication(); // 🔑 PHẢI TRƯỚC Authorization
 app.UseAuthorization();
