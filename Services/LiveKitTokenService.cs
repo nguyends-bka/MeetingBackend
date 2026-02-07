@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using Jose;
 using Microsoft.Extensions.Options;
 using MeetingBackend.Models;
@@ -19,8 +19,9 @@ namespace MeetingBackend.Services
         /// </summary>
         /// <param name="room">RoomName (LiveKit room)</param>
         /// <param name="identity">Identity của user (unique)</param>
+        /// <param name="name">Tên hiển thị trong chat (ví dụ: username)</param>
         /// <returns>JWT token</returns>
-        public string CreateToken(string room, string identity)
+        public string CreateToken(string room, string identity, string? name = null)
         {
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -44,6 +45,12 @@ namespace MeetingBackend.Services
                     }
                 }
             };
+
+            // Tên hiển thị trong chat (Participant.name)
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                payload["name"] = name.Trim();
+            }
 
             return JWT.Encode(
                 payload,

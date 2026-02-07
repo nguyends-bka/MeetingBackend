@@ -136,7 +136,8 @@ public class MeetingController : ControllerBase
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
-            userId!
+            userId!,
+            username
         );
 
         var response = new JoinMeetingResponseDto
@@ -192,7 +193,8 @@ public class MeetingController : ControllerBase
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
-            userId!
+            userId!,
+            username
         );
 
         var response = new JoinMeetingResponseDto
@@ -239,7 +241,8 @@ public class MeetingController : ControllerBase
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
-            userId!
+            userId!,
+            username
         );
 
         return Ok(new
