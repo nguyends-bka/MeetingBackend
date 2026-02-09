@@ -13,6 +13,7 @@ public static class UserMapper
         {
             Id = user.Id,
             Username = user.Username,
+            FullName = user.FullName,
             Role = user.Role
         };
     }
