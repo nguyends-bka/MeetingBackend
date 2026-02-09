@@ -161,13 +161,12 @@ public class MeetingController : ControllerBase
     {
         Meeting? meeting = null;
 
-        // Nếu có MeetingId (Guid), tìm bằng ID
-        if (req.MeetingId != Guid.Empty)
+        // Tham gia bằng mã: chỉ cần meetingCode + passcode. Tham gia bằng ID: meetingId + passcode.
+        if (req.MeetingId.HasValue && req.MeetingId.Value != Guid.Empty)
         {
             meeting = await _db.Meetings
-                .FirstOrDefaultAsync(m => m.Id == req.MeetingId);
+                .FirstOrDefaultAsync(m => m.Id == req.MeetingId!.Value);
         }
-        // Nếu không có MeetingId nhưng có MeetingCode, tìm bằng code
         else if (!string.IsNullOrEmpty(req.MeetingCode))
         {
             meeting = await _db.Meetings
