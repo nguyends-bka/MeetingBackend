@@ -13,4 +13,9 @@ public class AuthUserDto
     public string Role { get; set; } = string.Empty;
 
     public string FullName { get; set; } = string.Empty;
+    public string? Position { get; set; }
+    public string? AcademicRank { get; set; }
+    public string? AcademicDegree { get; set; }
+    public Guid? OrganizationUnitId { get; set; }
+    public string? FaceTemplate { get; set; }
 }

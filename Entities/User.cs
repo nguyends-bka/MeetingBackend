@@ -21,7 +21,15 @@ namespace MeetingBackend.Entities
 
         public string? Email { get; set; } // Email
 
-    public Guid? OrganizationUnitId { get; set; }
+        public string? Position { get; set; } // Chức vụ
+
+        public string? AcademicRank { get; set; } // GS | PGS
+
+        public string? AcademicDegree { get; set; } // TS | ThS | CN | KS
+
+        public Guid? OrganizationUnitId { get; set; }
+
+        public string? FaceTemplate { get; set; } // Chuỗi template khuôn mặt (<= 512 byte)
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }

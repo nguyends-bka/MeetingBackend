@@ -33,11 +33,31 @@ public class AdminController : ControllerBase
             .OrderByDescending(u => u.CreatedAt)
             .ToListAsync();
 
+        var unitIds = users
+            .Where(x => x.OrganizationUnitId.HasValue)
+            .Select(x => x.OrganizationUnitId!.Value)
+            .Distinct()
+            .ToList();
+        var unitMap = await _db.OrganizationUnits
+            .AsNoTracking()
+            .Where(x => unitIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name);
+
         var response = users.Select(u => new AdminUserDto
         {
             Id = u.Id,
             Username = u.Username,
             Role = u.Role,
+            FullName = u.FullName,
+            Email = u.Email,
+            Position = u.Position,
+            AcademicRank = u.AcademicRank,
+            AcademicDegree = u.AcademicDegree,
+            OrganizationUnitId = u.OrganizationUnitId,
+            OrganizationUnitName = u.OrganizationUnitId.HasValue && unitMap.TryGetValue(u.OrganizationUnitId.Value, out var unitName)
+                ? unitName
+                : null,
+            HasFaceTemplate = !string.IsNullOrWhiteSpace(u.FaceTemplate),
             CreatedAt = u.CreatedAt
         }).ToList();
 

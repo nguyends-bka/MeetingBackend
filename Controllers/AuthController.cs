@@ -29,6 +29,45 @@ public class AuthController : ControllerBase
         if (await _db.Users.AnyAsync(u => u.Username == req.Username))
             return BadRequest(new { message = "Tên đăng nhập đã tồn tại. Vui lòng chọn tên khác." });
 
+        if (!string.IsNullOrWhiteSpace(req.AcademicRank)
+            && req.AcademicRank != "GS"
+            && req.AcademicRank != "PGS")
+        {
+            return BadRequest(new { message = "Học hàm chỉ nhận GS hoặc PGS" });
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.AcademicDegree)
+            && req.AcademicDegree != "TS"
+            && req.AcademicDegree != "ThS"
+            && req.AcademicDegree != "CN"
+            && req.AcademicDegree != "KS")
+        {
+            return BadRequest(new { message = "Học vị chỉ nhận TS, ThS, CN hoặc KS" });
+        }
+
+        if (!string.IsNullOrWhiteSpace(req.FaceTemplate))
+        {
+            try
+            {
+                _ = Convert.FromBase64String(req.FaceTemplate);
+            }
+            catch (FormatException)
+            {
+                return BadRequest(new { message = "Face template phải là chuỗi Base64 hợp lệ" });
+            }
+        }
+
+        if (req.OrganizationUnitId.HasValue)
+        {
+            var ouExists = await _db.OrganizationUnits
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == req.OrganizationUnitId.Value);
+            if (!ouExists)
+            {
+                return BadRequest(new { message = "Đơn vị công tác không tồn tại" });
+            }
+        }
+
         var user = new User
         {
             Id = Guid.NewGuid(),
@@ -36,7 +75,12 @@ public class AuthController : ControllerBase
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.Password),
             Role = Roles.User,
             FullName = string.IsNullOrWhiteSpace(req.FullName) ? null : req.FullName.Trim(),
-            Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim().ToLower()
+            Email = string.IsNullOrWhiteSpace(req.Email) ? null : req.Email.Trim().ToLower(),
+            Position = string.IsNullOrWhiteSpace(req.Position) ? null : req.Position.Trim(),
+            AcademicRank = string.IsNullOrWhiteSpace(req.AcademicRank) ? null : req.AcademicRank.Trim(),
+            AcademicDegree = string.IsNullOrWhiteSpace(req.AcademicDegree) ? null : req.AcademicDegree.Trim(),
+            OrganizationUnitId = req.OrganizationUnitId,
+            FaceTemplate = string.IsNullOrWhiteSpace(req.FaceTemplate) ? null : req.FaceTemplate.Trim(),
         };
 
         _db.Users.Add(user);

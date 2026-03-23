@@ -3,6 +3,7 @@ using System;
 using MeetingBackend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MeetingBackend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260323140257_AddUserProfessionalFields")]
+    partial class AddUserProfessionalFields
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -385,6 +388,8 @@ namespace MeetingBackend.Migrations
                             t.HasCheckConstraint("CK_Users_AcademicDegree", "\"AcademicDegree\" IS NULL OR \"AcademicDegree\" IN ('TS','ThS','CN','KS')");
 
                             t.HasCheckConstraint("CK_Users_AcademicRank", "\"AcademicRank\" IS NULL OR \"AcademicRank\" IN ('GS','PGS')");
+
+                            t.HasCheckConstraint("CK_Users_FaceTemplate_Bytes", "\"FaceTemplate\" IS NULL OR octet_length(\"FaceTemplate\") <= 512");
                         });
                 });
 

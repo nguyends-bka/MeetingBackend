@@ -14,11 +14,16 @@ public static class UserMapper
             Id = user.Id,
             Username = user.Username,
             FullName = user.FullName ?? string.Empty,
-            Role = user.Role
+            Role = user.Role,
+            Position = user.Position,
+            AcademicRank = user.AcademicRank,
+            AcademicDegree = user.AcademicDegree,
+            OrganizationUnitId = user.OrganizationUnitId,
+            FaceTemplate = user.FaceTemplate
         };
     }
 
-    public static UserProfileResponseDto ToUserProfileDto(User user)
+    public static UserProfileResponseDto ToUserProfileDto(User user, string? organizationUnitName = null)
     {
         return new UserProfileResponseDto
         {
@@ -27,11 +32,17 @@ public static class UserMapper
             Role = user.Role,
             FullName = user.FullName,
             Email = user.Email,
+            Position = user.Position,
+            AcademicRank = user.AcademicRank,
+            AcademicDegree = user.AcademicDegree,
+            OrganizationUnitId = user.OrganizationUnitId,
+            OrganizationUnitName = organizationUnitName,
+            FaceTemplate = user.FaceTemplate,
             CreatedAt = user.CreatedAt
         };
     }
 
-    public static UserDto ToUserDto(User user)
+    public static UserDto ToUserDto(User user, string? organizationUnitName = null)
     {
         return new UserDto
         {
@@ -39,7 +50,13 @@ public static class UserMapper
             Username = user.Username,
             Role = user.Role,
             FullName = user.FullName,
-            Email = user.Email
+            Email = user.Email,
+            Position = user.Position,
+            AcademicRank = user.AcademicRank,
+            AcademicDegree = user.AcademicDegree,
+            OrganizationUnitId = user.OrganizationUnitId,
+            OrganizationUnitName = organizationUnitName,
+            FaceTemplate = user.FaceTemplate
         };
     }
 }

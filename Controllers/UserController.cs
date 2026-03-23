@@ -40,8 +40,38 @@ public class UserController : ControllerBase
         if (user == null)
             return NotFound("User not found");
 
-        var response = UserMapper.ToUserProfileDto(user);
+        string? orgName = null;
+        if (user.OrganizationUnitId.HasValue)
+        {
+            orgName = await _db.OrganizationUnits
+                .AsNoTracking()
+                .Where(x => x.Id == user.OrganizationUnitId.Value)
+                .Select(x => x.Name)
+                .FirstOrDefaultAsync();
+        }
+
+        var response = UserMapper.ToUserProfileDto(user, orgName);
         return Ok(response);
+    }
+
+    [HttpGet("organization-units")]
+    public async Task<IActionResult> ListOrganizationUnits()
+    {
+        var units = await _db.OrganizationUnits
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Level)
+            .ThenBy(x => x.Name)
+            .Select(x => new OrganizationUnitOptionDto
+            {
+                Id = x.Id,
+                Name = x.Name,
+                Level = x.Level,
+                ParentId = x.ParentId,
+                IsActive = x.IsActive,
+            })
+            .ToListAsync();
+        return Ok(units);
     }
 
     // ==========================
@@ -70,6 +100,45 @@ public class UserController : ControllerBase
             return BadRequest(new { message = "Email đã được sử dụng. Vui lòng chọn email khác." });
         }
 
+        if (!string.IsNullOrWhiteSpace(request.AcademicRank)
+            && request.AcademicRank != "GS"
+            && request.AcademicRank != "PGS")
+        {
+            return BadRequest(new { message = "Học hàm chỉ nhận GS hoặc PGS" });
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.AcademicDegree)
+            && request.AcademicDegree != "TS"
+            && request.AcademicDegree != "ThS"
+            && request.AcademicDegree != "CN"
+            && request.AcademicDegree != "KS")
+        {
+            return BadRequest(new { message = "Học vị chỉ nhận TS, ThS, CN hoặc KS" });
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.FaceTemplate))
+        {
+            try
+            {
+                _ = Convert.FromBase64String(request.FaceTemplate);
+            }
+            catch (FormatException)
+            {
+                return BadRequest(new { message = "Face template phải là chuỗi Base64 hợp lệ" });
+            }
+        }
+
+        if (request.OrganizationUnitId.HasValue)
+        {
+            var unitExists = await _db.OrganizationUnits
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == request.OrganizationUnitId.Value);
+            if (!unitExists)
+            {
+                return BadRequest(new { message = "Đơn vị công tác không tồn tại" });
+            }
+        }
+
         // Cập nhật thông tin
         if (request.FullName != null)
             user.FullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
@@ -77,12 +146,37 @@ public class UserController : ControllerBase
         if (request.Email != null)
             user.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLower();
 
+        if (request.Position != null)
+            user.Position = string.IsNullOrWhiteSpace(request.Position) ? null : request.Position.Trim();
+
+        if (request.AcademicRank != null)
+            user.AcademicRank = string.IsNullOrWhiteSpace(request.AcademicRank) ? null : request.AcademicRank.Trim();
+
+        if (request.AcademicDegree != null)
+            user.AcademicDegree = string.IsNullOrWhiteSpace(request.AcademicDegree) ? null : request.AcademicDegree.Trim();
+
+        if (request.OrganizationUnitId != null)
+            user.OrganizationUnitId = request.OrganizationUnitId;
+
+        if (request.FaceTemplate != null)
+            user.FaceTemplate = string.IsNullOrWhiteSpace(request.FaceTemplate) ? null : request.FaceTemplate.Trim();
+
         await _db.SaveChangesAsync();
+
+        string? orgName = null;
+        if (user.OrganizationUnitId.HasValue)
+        {
+            orgName = await _db.OrganizationUnits
+                .AsNoTracking()
+                .Where(x => x.Id == user.OrganizationUnitId.Value)
+                .Select(x => x.Name)
+                .FirstOrDefaultAsync();
+        }
 
         var response = new UpdateProfileResponseDto
         {
             Message = "Cập nhật thông tin thành công",
-            User = UserMapper.ToUserDto(user)
+            User = UserMapper.ToUserDto(user, orgName)
         };
 
         return Ok(response);

@@ -93,6 +93,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<User>(e =>
         {
             e.HasIndex(x => x.OrganizationUnitId);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_Users_AcademicRank", "\"AcademicRank\" IS NULL OR \"AcademicRank\" IN ('GS','PGS')");
+                t.HasCheckConstraint("CK_Users_AcademicDegree", "\"AcademicDegree\" IS NULL OR \"AcademicDegree\" IN ('TS','ThS','CN','KS')");
+            });
             e.HasOne<OrganizationUnit>()
                 .WithMany()
                 .HasForeignKey(x => x.OrganizationUnitId)
