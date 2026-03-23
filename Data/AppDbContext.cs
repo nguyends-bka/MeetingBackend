@@ -15,6 +15,8 @@ public class AppDbContext : DbContext
     public DbSet<MeetingParticipant> MeetingParticipants => Set<MeetingParticipant>();
     public DbSet<MeetingPoll> MeetingPolls => Set<MeetingPoll>();
     public DbSet<MeetingPollVote> MeetingPollVotes => Set<MeetingPollVote>();
+    public DbSet<MeetingChatMessage> MeetingChatMessages => Set<MeetingChatMessage>();
+    public DbSet<MeetingTranscriptEntry> MeetingTranscriptEntries => Set<MeetingTranscriptEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -33,6 +35,25 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.MeetingPoll)
                 .WithMany(p => p.Votes)
                 .HasForeignKey(x => x.MeetingPollId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingChatMessage>(e =>
+        {
+            e.HasIndex(x => new { x.MeetingId, x.SentAtUtc });
+            e.HasIndex(x => new { x.MeetingId, x.ClientMessageId }).IsUnique();
+            e.HasOne<Meeting>()
+                .WithMany()
+                .HasForeignKey(x => x.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingTranscriptEntry>(e =>
+        {
+            e.HasIndex(x => new { x.MeetingId, x.AtUtc });
+            e.HasOne<Meeting>()
+                .WithMany()
+                .HasForeignKey(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
     }

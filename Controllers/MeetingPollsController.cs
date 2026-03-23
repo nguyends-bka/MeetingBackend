@@ -53,8 +53,16 @@ public class MeetingPollsController : ControllerBase
         return m != null && m.HostIdentity == userId;
     }
 
+    private async Task<bool> CanViewPollsAsync(Guid meetingId, string userId, string? role)
+    {
+        if (await IsHostOrAdminAsync(meetingId, userId, role)) return true;
+        return await _db.MeetingParticipants
+            .AsNoTracking()
+            .AnyAsync(p => p.MeetingId == meetingId && p.UserId == userId);
+    }
+
     /// <summary>
-    /// Danh sách biểu quyết + phiếu (host hoặc admin).
+    /// Danh sách biểu quyết + phiếu (host/admin hoặc người đã tham gia meeting).
     /// </summary>
     [HttpGet]
     public async Task<IActionResult> List(Guid meetingId)
@@ -64,8 +72,8 @@ public class MeetingPollsController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
-        if (!await IsHostOrAdminAsync(meetingId, userId, role))
-            return Unauthorized("Only meeting host or Admin can list polls");
+        if (!await CanViewPollsAsync(meetingId, userId, role))
+            return Unauthorized("Only meeting participants, host, or Admin can list polls");
 
         var polls = await _db.MeetingPolls
             .AsNoTracking()
