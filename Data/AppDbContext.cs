@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<MeetingParticipant> MeetingParticipants => Set<MeetingParticipant>();
     public DbSet<MeetingPoll> MeetingPolls => Set<MeetingPoll>();
     public DbSet<MeetingPollVote> MeetingPollVotes => Set<MeetingPollVote>();
+    public DbSet<MeetingPollManager> MeetingPollManagers => Set<MeetingPollManager>();
     public DbSet<MeetingChatMessage> MeetingChatMessages => Set<MeetingChatMessage>();
     public DbSet<MeetingTranscriptEntry> MeetingTranscriptEntries => Set<MeetingTranscriptEntry>();
 
@@ -35,6 +36,15 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.MeetingPoll)
                 .WithMany(p => p.Votes)
                 .HasForeignKey(x => x.MeetingPollId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingPollManager>(e =>
+        {
+            e.HasIndex(x => new { x.MeetingId, x.Username }).IsUnique();
+            e.HasOne<Meeting>()
+                .WithMany()
+                .HasForeignKey(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

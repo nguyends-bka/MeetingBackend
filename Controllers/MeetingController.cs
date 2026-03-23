@@ -271,6 +271,7 @@ public class MeetingController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
         var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username") ?? string.Empty;
 
         if (string.IsNullOrEmpty(userId))
         {
@@ -289,7 +290,27 @@ public class MeetingController : ControllerBase
             .OrderByDescending(m => m.CreatedAt)
             .ToListAsync();
 
-        var response = meetings.Select(MeetingMapper.ToMeetingListItemDto).ToList();
+        var managerMeetingIds = string.IsNullOrWhiteSpace(username)
+            ? new HashSet<Guid>()
+            : (await _db.MeetingPollManagers
+                .AsNoTracking()
+                .Where(x => x.Username.ToLower() == username.Trim().ToLower())
+                .Select(x => x.MeetingId)
+                .ToListAsync())
+              .ToHashSet();
+
+        var normalizedUserId = userId.Trim();
+        var normalizedUsername = username.Trim();
+        var response = meetings.Select(m =>
+        {
+            var isHost = string.Equals(m.HostIdentity, normalizedUserId, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(normalizedUsername)
+                    && string.Equals(m.HostIdentity, normalizedUsername, StringComparison.OrdinalIgnoreCase));
+            var canManagePoll = isHost || managerMeetingIds.Contains(m.Id);
+            var dto = MeetingMapper.ToMeetingListItemDto(m);
+            dto.CanManagePoll = canManagePoll;
+            return dto;
+        }).ToList();
         return Ok(response);
     }
 

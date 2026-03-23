@@ -46,16 +46,42 @@ public class MeetingPollsController : ControllerBase
     private async Task<Meeting?> GetMeetingAsync(Guid meetingId) =>
         await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
 
-    private async Task<bool> IsHostOrAdminAsync(Guid meetingId, string userId, string? role)
+    private async Task<bool> IsHostOrAdminAsync(Guid meetingId, string userId, string? role, string? username)
     {
         if (role == "Admin") return true;
         var m = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == meetingId);
-        return m != null && m.HostIdentity == userId;
+        if (m == null) return false;
+        return IsHostIdentityMatch(m.HostIdentity?.Trim() ?? string.Empty, userId, username);
     }
 
-    private async Task<bool> CanViewPollsAsync(Guid meetingId, string userId, string? role)
+    private async Task<bool> IsPollManagerAsync(Guid meetingId, string? username)
     {
-        if (await IsHostOrAdminAsync(meetingId, userId, role)) return true;
+        if (string.IsNullOrWhiteSpace(username)) return false;
+        var normalized = username.Trim().ToLower();
+        return await _db.MeetingPollManagers
+            .AsNoTracking()
+            .AnyAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == normalized);
+    }
+
+    private async Task<bool> CanManagePollsAsync(Guid meetingId, string userId, string? username)
+    {
+        var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == meetingId);
+        if (meeting == null) return false;
+        if (IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username)) return true;
+        return await IsPollManagerAsync(meetingId, username);
+    }
+
+    private static bool IsHostIdentityMatch(string hostIdentity, string userId, string? username)
+    {
+        if (string.Equals(hostIdentity, userId, StringComparison.OrdinalIgnoreCase)) return true;
+        if (!string.IsNullOrWhiteSpace(username)
+            && string.Equals(hostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private async Task<bool> CanViewPollsAsync(Guid meetingId, string userId, string? role, string? username)
+    {
+        if (await IsHostOrAdminAsync(meetingId, userId, role, username)) return true;
         return await _db.MeetingParticipants
             .AsNoTracking()
             .AnyAsync(p => p.MeetingId == meetingId && p.UserId == userId);
@@ -69,17 +95,31 @@ public class MeetingPollsController : ControllerBase
     {
         var userId = UserId(User);
         var role = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username");
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
-        if (!await CanViewPollsAsync(meetingId, userId, role))
+        if (!await CanViewPollsAsync(meetingId, userId, role, username))
             return Unauthorized("Only meeting participants, host, or Admin can list polls");
 
-        var polls = await _db.MeetingPolls
+        var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+        var isHostOrAdmin = role == "Admin" || IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username);
+        var isPollManager = await IsPollManagerAsync(meetingId, username);
+
+        IQueryable<MeetingPoll> pollsQuery = _db.MeetingPolls
             .AsNoTracking()
             .Where(p => p.MeetingId == meetingId)
+            .Include(p => p.Votes);
+
+        if (!isHostOrAdmin && !isPollManager)
+        {
+            pollsQuery = pollsQuery.Where(p => p.Status != "draft");
+        }
+
+        var polls = await pollsQuery
             .OrderBy(p => p.CreatedAtUtc)
-            .Include(p => p.Votes)
             .ToListAsync();
 
         var dtos = polls.Select(ToDto).ToList();
@@ -103,12 +143,8 @@ public class MeetingPollsController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
 
-        var hostIdentity = meeting.HostIdentity?.Trim() ?? string.Empty;
-        var isHostById = string.Equals(hostIdentity, userId.Trim(), StringComparison.OrdinalIgnoreCase);
-        var isHostByUsername = !string.IsNullOrWhiteSpace(username)
-            && string.Equals(hostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase);
-        if (!isHostById && !isHostByUsername)
-            return Unauthorized("Only meeting host can create polls");
+        if (!await CanManagePollsAsync(meetingId, userId.Trim(), username))
+            return Unauthorized("Only meeting host or poll manager can create polls");
 
         if (string.IsNullOrWhiteSpace(dto.Title))
             return BadRequest("Title is required");
@@ -136,6 +172,7 @@ public class MeetingPollsController : ControllerBase
         }
 
         var mode = dto.SelectionMode == "multiple" ? "multiple" : "single";
+        var status = string.Equals(dto.Status, "open", StringComparison.OrdinalIgnoreCase) ? "open" : "draft";
         var createdAt = dto.CreatedAt > 0 ? FromUnixMs(dto.CreatedAt) : DateTime.UtcNow;
 
         var poll = new MeetingPoll
@@ -150,12 +187,109 @@ public class MeetingPollsController : ControllerBase
             CreatedAtUtc = createdAt,
             SelectionMode = mode,
             EndAtUtc = dto.EndAt.HasValue && dto.EndAt.Value > 0 ? FromUnixMs(dto.EndAt.Value) : null,
-            Status = "open",
+            Status = status,
         };
 
         _db.MeetingPolls.Add(poll);
         await _db.SaveChangesAsync();
 
+        return Ok(ToDto(poll));
+    }
+
+    /// <summary>
+    /// Chỉnh sửa phiếu nháp trước khi công bố (chỉ host meeting).
+    /// </summary>
+    [HttpPut("{pollId}")]
+    public async Task<IActionResult> UpdateDraft(Guid meetingId, string pollId, [FromBody] PollCreateRequestDto dto)
+    {
+        var userId = UserId(User);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+        if (!await CanManagePollsAsync(meetingId, userId.Trim(), username))
+            return Unauthorized("Only meeting host or poll manager can edit draft polls");
+
+        var poll = await _db.MeetingPolls
+            .Include(p => p.Votes)
+            .FirstOrDefaultAsync(p => p.MeetingId == meetingId && p.PollId == pollId);
+        if (poll == null)
+            return NotFound("Poll not found");
+        if (poll.Status != "draft")
+            return BadRequest("Only draft polls can be edited");
+
+        if (string.IsNullOrWhiteSpace(dto.Title))
+            return BadRequest("Title is required");
+
+        var options = dto.Options?.Where(o => !string.IsNullOrWhiteSpace(o)).Select(o => o.Trim()).ToArray() ?? Array.Empty<string>();
+        if (options.Length < 2 || options.Length > 8)
+            return BadRequest("Options must have between 2 and 8 items");
+
+        poll.Title = dto.Title.Trim();
+        poll.OptionsJson = JsonSerializer.Serialize(options, JsonOpts);
+        poll.SelectionMode = dto.SelectionMode == "multiple" ? "multiple" : "single";
+        poll.EndAtUtc = dto.EndAt.HasValue && dto.EndAt.Value > 0 ? FromUnixMs(dto.EndAt.Value) : null;
+
+        await _db.SaveChangesAsync();
+        return Ok(ToDto(poll));
+    }
+
+    [HttpDelete("{pollId}")]
+    public async Task<IActionResult> DeleteDraft(Guid meetingId, string pollId)
+    {
+        var userId = UserId(User);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        if (!await CanManagePollsAsync(meetingId, userId.Trim(), username))
+            return Unauthorized("Only meeting host or poll manager can delete draft polls");
+
+        var poll = await _db.MeetingPolls
+            .FirstOrDefaultAsync(p => p.MeetingId == meetingId && p.PollId == pollId);
+        if (poll == null)
+            return NotFound("Poll not found");
+        if (poll.Status != "draft")
+            return BadRequest("Only draft polls can be deleted");
+
+        _db.MeetingPolls.Remove(poll);
+        await _db.SaveChangesAsync();
+        return Ok(new { ok = true });
+    }
+
+    /// <summary>
+    /// Công bố phiếu nháp cho cả phòng (draft -> open), chỉ host hoặc admin.
+    /// </summary>
+    [HttpPost("{pollId}/publish")]
+    public async Task<IActionResult> Publish(Guid meetingId, string pollId, [FromBody] PollPublishRequestDto dto)
+    {
+        var userId = UserId(User);
+        var username = User.FindFirstValue("username");
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+        if (dto.PublishedBy != userId)
+            return BadRequest("PublishedBy must match authenticated user");
+
+        if (!await CanManagePollsAsync(meetingId, userId, username))
+            return Unauthorized("Only meeting host or poll manager can publish polls");
+
+        var poll = await _db.MeetingPolls
+            .Include(p => p.Votes)
+            .FirstOrDefaultAsync(p => p.MeetingId == meetingId && p.PollId == pollId);
+        if (poll == null)
+            return NotFound("Poll not found");
+
+        if (poll.Status == "closed")
+            return BadRequest("Poll is closed");
+
+        if (poll.Status != "open")
+        {
+            poll.Status = "open";
+            await _db.SaveChangesAsync();
+        }
         return Ok(ToDto(poll));
     }
 
@@ -269,7 +403,7 @@ public class MeetingPollsController : ControllerBase
     public async Task<IActionResult> Close(Guid meetingId, string pollId, [FromBody] PollCloseRequestDto dto)
     {
         var userId = UserId(User);
-        var role = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username");
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
@@ -284,9 +418,9 @@ public class MeetingPollsController : ControllerBase
         if (poll.Status == "closed")
             return Ok(ToDto(poll));
 
-        var canClose = poll.CreatedBy == userId || role == "Admin";
+        var canClose = await CanManagePollsAsync(meetingId, userId, username);
         if (!canClose)
-            return Unauthorized("Only poll creator or Admin can close");
+            return Unauthorized("Only meeting host or poll manager can close");
 
         poll.Status = "closed";
         poll.ClosedBy = dto.ClosedBy;
@@ -294,6 +428,129 @@ public class MeetingPollsController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(ToDto(poll));
+    }
+
+    [HttpGet("managers")]
+    public async Task<IActionResult> ListManagers(Guid meetingId)
+    {
+        var userId = UserId(User);
+        var role = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username");
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        if (!await CanViewPollsAsync(meetingId, userId, role, username))
+            return Unauthorized();
+
+        var managers = await _db.MeetingPollManagers
+            .AsNoTracking()
+            .Where(x => x.MeetingId == meetingId)
+            .OrderBy(x => x.Username)
+            .ToListAsync();
+
+        var usernames = managers
+            .Select(x => x.Username)
+            .Concat(managers.Select(x => x.AddedBy))
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToLower())
+            .Distinct()
+            .ToList();
+
+        var userMap = await _db.Users
+            .AsNoTracking()
+            .Where(u => usernames.Contains(u.Username.ToLower()))
+            .ToDictionaryAsync(
+                u => u.Username.ToLower(),
+                u => string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName!);
+
+        var dtos = managers.Select(x =>
+        {
+            var un = x.Username.Trim().ToLower();
+            var by = x.AddedBy.Trim().ToLower();
+            return new PollManagerItemDto
+            {
+                Username = x.Username,
+                FullName = userMap.TryGetValue(un, out var fn) ? fn : x.Username,
+                AddedBy = x.AddedBy,
+                AddedByFullName = userMap.TryGetValue(by, out var addedByFn) ? addedByFn : x.AddedBy,
+                AddedAt = ToUnixMs(x.AddedAtUtc),
+            };
+        }).ToList();
+        return Ok(dtos);
+    }
+
+    [HttpPost("managers")]
+    public async Task<IActionResult> AddManager(Guid meetingId, [FromBody] AddPollManagerRequestDto dto)
+        => await AddManagerCore(meetingId, dto);
+
+    [HttpPut("managers")]
+    public async Task<IActionResult> AddManagerPut(Guid meetingId, [FromBody] AddPollManagerRequestDto dto)
+        => await AddManagerCore(meetingId, dto);
+
+    private async Task<IActionResult> AddManagerCore(Guid meetingId, AddPollManagerRequestDto dto)
+    {
+        var userId = UserId(User);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+        if (!IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username))
+            return Unauthorized("Only meeting host can add poll managers");
+
+        var targetUsername = dto.Username?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(targetUsername))
+            return BadRequest("Username is required");
+
+        var userExists = await _db.Users.AsNoTracking().AnyAsync(u => u.Username.ToLower() == targetUsername.ToLower());
+        if (!userExists)
+            return NotFound("User not found");
+
+        var exists = await _db.MeetingPollManagers
+            .AnyAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == targetUsername.ToLower());
+        if (exists)
+            return Ok(new { ok = true, message = "Manager already exists" });
+
+        _db.MeetingPollManagers.Add(new MeetingPollManager
+        {
+            Id = Guid.NewGuid(),
+            MeetingId = meetingId,
+            Username = targetUsername,
+            AddedBy = username,
+            AddedAtUtc = DateTime.UtcNow,
+        });
+        await _db.SaveChangesAsync();
+        return Ok(new { ok = true });
+    }
+
+    [HttpDelete("managers/{username}")]
+    public async Task<IActionResult> RemoveManager(Guid meetingId, string username)
+    {
+        var userId = UserId(User);
+        var actorUsername = User.FindFirstValue("username") ?? string.Empty;
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized();
+
+        var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+        if (!IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, actorUsername))
+            return Unauthorized("Only meeting host can remove poll managers");
+
+        var target = (username ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(target))
+            return BadRequest("Username is required");
+
+        var row = await _db.MeetingPollManagers
+            .FirstOrDefaultAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == target.ToLower());
+        if (row == null)
+            return NotFound("Poll manager not found");
+
+        _db.MeetingPollManagers.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(new { ok = true });
     }
 
     private static int[]? NormalizeIndices(int[] raw, int optionCount, string mode)

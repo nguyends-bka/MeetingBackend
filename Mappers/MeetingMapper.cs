@@ -12,6 +12,7 @@ public static class MeetingMapper
             Id = meeting.Id,
             Title = meeting.Title,
             HostName = meeting.HostName,
+            HostIdentity = meeting.HostIdentity,
             MeetingCode = meeting.MeetingCode,
             Passcode = meeting.Passcode,
             CreatedAt = meeting.CreatedAt
