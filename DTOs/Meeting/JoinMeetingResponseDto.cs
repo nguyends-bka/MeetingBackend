@@ -9,4 +9,5 @@ public class JoinMeetingResponseDto
     public string MeetingCode { get; set; } = string.Empty;
     public Guid ParticipantId { get; set; }
     public string? Title { get; set; }
+    public string HostIdentity { get; set; } = string.Empty;
 }

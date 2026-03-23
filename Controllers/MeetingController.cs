@@ -147,7 +147,8 @@ public class MeetingController : ControllerBase
             RoomName = meeting.RoomName,
             MeetingId = meeting.Id,
             MeetingCode = meeting.MeetingCode,
-            ParticipantId = participant.Id
+            ParticipantId = participant.Id,
+            HostIdentity = meeting.HostIdentity
         };
 
         return Ok(response);
@@ -203,7 +204,8 @@ public class MeetingController : ControllerBase
             RoomName = meeting.RoomName,
             MeetingId = meeting.Id,
             MeetingCode = meeting.MeetingCode,
-            ParticipantId = participant.Id
+            ParticipantId = participant.Id,
+            HostIdentity = meeting.HostIdentity
         };
 
         return Ok(response);
@@ -252,7 +254,8 @@ public class MeetingController : ControllerBase
             meetingId = meeting.Id,
             meetingCode = meeting.MeetingCode,
             title = meeting.Title,
-            participantId = participant.Id
+            participantId = participant.Id,
+            hostIdentity = meeting.HostIdentity
         });
     }
 

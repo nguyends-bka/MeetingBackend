@@ -79,20 +79,28 @@ public class MeetingPollsController : ControllerBase
     }
 
     /// <summary>
-    /// Tạo phiếu (host hoặc admin). CreatedBy phải trùng user JWT.
+    /// Tạo phiếu (chỉ host meeting). CreatedBy phải trùng user JWT.
     /// PollId tùy chọn — bỏ qua hoặc null thì server tự sinh GUID.
     /// </summary>
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.MeetingHostOrAdmin)]
+    [Authorize]
     public async Task<IActionResult> Create(Guid meetingId, [FromBody] PollCreateRequestDto dto)
     {
         var userId = UserId(User);
+        var username = User.FindFirstValue("username") ?? string.Empty;
         if (string.IsNullOrEmpty(userId))
             return Unauthorized();
 
         var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)
             return NotFound("Meeting not found");
+
+        var hostIdentity = meeting.HostIdentity?.Trim() ?? string.Empty;
+        var isHostById = string.Equals(hostIdentity, userId.Trim(), StringComparison.OrdinalIgnoreCase);
+        var isHostByUsername = !string.IsNullOrWhiteSpace(username)
+            && string.Equals(hostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (!isHostById && !isHostByUsername)
+            return Unauthorized("Only meeting host can create polls");
 
         if (string.IsNullOrWhiteSpace(dto.Title))
             return BadRequest("Title is required");
