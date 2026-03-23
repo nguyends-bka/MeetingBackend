@@ -21,6 +21,8 @@ namespace MeetingBackend.Entities
 
         public string? Email { get; set; } // Email
 
+    public Guid? OrganizationUnitId { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }

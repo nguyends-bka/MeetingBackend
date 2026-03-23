@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<MeetingPollManager> MeetingPollManagers => Set<MeetingPollManager>();
     public DbSet<MeetingChatMessage> MeetingChatMessages => Set<MeetingChatMessage>();
     public DbSet<MeetingTranscriptEntry> MeetingTranscriptEntries => Set<MeetingTranscriptEntry>();
+    public DbSet<OrganizationUnit> OrganizationUnits => Set<OrganizationUnit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -65,6 +66,37 @@ public class AppDbContext : DbContext
                 .WithMany()
                 .HasForeignKey(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OrganizationUnit>(e =>
+        {
+            e.ToTable("OrganizationUnits");
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => x.Code).IsUnique();
+            e.HasIndex(x => x.ParentId);
+            e.HasIndex(x => x.Level);
+            e.HasIndex(x => x.IsActive);
+            e.Property(x => x.Level).HasDefaultValue(1);
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.ToTable(t =>
+            {
+                t.HasCheckConstraint("CK_OrganizationUnits_Level", "\"Level\" >= 1 AND \"Level\" <= 5");
+                t.HasCheckConstraint("CK_OrganizationUnits_Parent_NotSelf", "\"ParentId\" IS NULL OR \"ParentId\" <> \"Id\"");
+            });
+
+            e.HasOne<OrganizationUnit>()
+                .WithMany()
+                .HasForeignKey(x => x.ParentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<User>(e =>
+        {
+            e.HasIndex(x => x.OrganizationUnitId);
+            e.HasOne<OrganizationUnit>()
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationUnitId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }
