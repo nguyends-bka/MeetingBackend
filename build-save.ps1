@@ -3,11 +3,11 @@
 param(
     [string]$ImageName = $env:IMAGE_NAME,
     [string]$Tag = $env:IMAGE_TAG,
-    [string]$TarFile = "meeting-backend.tar"
+    [string]$TarFile = "backend.tar"
 )
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
-if (-not $ImageName) { $ImageName = "nguyendsbka/meeting-backend" }
+if (-not $ImageName) { $ImageName = "nguyends/backend" }
 if (-not $Tag) { $Tag = "latest" }
 $FullImage = "${ImageName}:${Tag}"
 Write-Host "Building: $FullImage" -ForegroundColor Cyan
@@ -16,4 +16,4 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "Saving to $TarFile ..." -ForegroundColor Cyan
 & docker save $FullImage -o $TarFile
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-Write-Host "Done. Copy to server: scp $TarFile ubuntu@meeting.soict.io:~/meeting-deploy/backend/" -ForegroundColor Green
+Write-Host "Done. Copy to server: scp $TarFile ubuntu@meeting.soict.io:~/meeting-deploy/deployFile/" -ForegroundColor Green

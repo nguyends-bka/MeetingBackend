@@ -54,16 +54,24 @@ builder.Services.AddSwaggerGen(options =>
             new string[] {}
         }
     });
+    options.EnableAnnotations();
 });
 
 // =======================
 // Database (PostgreSQL)
 // =======================
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(
-        builder.Configuration.GetConnectionString("DefaultConnection")
-    )
-);
+{
+    var cs = builder.Configuration.GetConnectionString("DefaultConnection");
+    options.UseNpgsql(cs, npgsql =>
+    {
+        // 57P03 "database system is not yet accepting connections" khi Postgres vừa start / recovery
+        npgsql.EnableRetryOnFailure(
+            maxRetryCount: 6,
+            maxRetryDelay: TimeSpan.FromSeconds(15),
+            errorCodesToAdd: null);
+    });
+});
 
 // =======================
 // LiveKit
@@ -131,6 +139,11 @@ var app = builder.Build();
 // =======================
 // Middleware
 // =======================
+if (app.Environment.IsDevelopment())
+{
+    app.UseDeveloperExceptionPage();
+}
+
 app.UseSwagger();
 app.UseSwaggerUI();
 
