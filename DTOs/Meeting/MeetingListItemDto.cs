@@ -10,4 +10,6 @@ public class MeetingListItemDto
     public string MeetingCode { get; set; } = string.Empty;
     public string Passcode { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? EndedAt { get; set; }
 }

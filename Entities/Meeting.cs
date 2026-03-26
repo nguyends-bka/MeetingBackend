@@ -1,4 +1,4 @@
-﻿namespace MeetingBackend.Entities;
+namespace MeetingBackend.Entities;
 
 public class Meeting
 {
@@ -17,4 +17,10 @@ public class Meeting
     public string Passcode { get; set; } = string.Empty; // Mật khẩu để tham gia (4-6 chữ số)
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Thời điểm bắt đầu thực tế (lần join đầu tiên).</summary>
+    public DateTime? StartedAt { get; set; }
+
+    /// <summary>Thời điểm kết thúc thực tế (host kết thúc cuộc họp).</summary>
+    public DateTime? EndedAt { get; set; }
 }

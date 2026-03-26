@@ -36,6 +36,12 @@ public class MeetingController : ControllerBase
     // Helper method để ghi lại lịch sử vào meeting
     private async Task<MeetingParticipant> RecordJoinAsync(Guid meetingId, string userId, string username)
     {
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+        {
+            throw new InvalidOperationException("Meeting not found");
+        }
+
         // Nếu user đang có session active trong meeting này, không tạo thêm record mới
         var existingActive = await _db.MeetingParticipants
             .FirstOrDefaultAsync(p =>
@@ -54,6 +60,12 @@ public class MeetingController : ControllerBase
             return existingActive;
         }
 
+        if (meeting.EndedAt.HasValue)
+        {
+            // Meeting đã kết thúc, không cho join tiếp.
+            throw new UnauthorizedAccessException("Meeting has ended");
+        }
+
         var participant = new MeetingParticipant
         {
             Id = Guid.NewGuid(),
@@ -63,6 +75,12 @@ public class MeetingController : ControllerBase
             JoinedAt = DateTime.UtcNow
         };
         _db.MeetingParticipants.Add(participant);
+
+        if (!meeting.StartedAt.HasValue)
+        {
+            meeting.StartedAt = participant.JoinedAt;
+        }
+
         await _db.SaveChangesAsync();
         return participant;
     }
@@ -132,7 +150,15 @@ public class MeetingController : ControllerBase
         var username = User.FindFirstValue("username") ?? "Unknown";
 
         // Ghi lại lịch sử vào meeting
-        var participant = await RecordJoinAsync(meeting.Id, userId!, username);
+        MeetingParticipant participant;
+        try
+        {
+            participant = await RecordJoinAsync(meeting.Id, userId!, username);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(ex.Message);
+        }
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
@@ -189,7 +215,15 @@ public class MeetingController : ControllerBase
         var username = User.FindFirstValue("username") ?? "Unknown";
 
         // Ghi lại lịch sử vào meeting
-        var participant = await RecordJoinAsync(meeting.Id, userId!, username);
+        MeetingParticipant participant;
+        try
+        {
+            participant = await RecordJoinAsync(meeting.Id, userId!, username);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(ex.Message);
+        }
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
@@ -238,7 +272,15 @@ public class MeetingController : ControllerBase
         var username = User.FindFirstValue("username") ?? "Unknown";
 
         // Ghi lại lịch sử vào meeting
-        var participant = await RecordJoinAsync(meeting.Id, userId!, username);
+        MeetingParticipant participant;
+        try
+        {
+            participant = await RecordJoinAsync(meeting.Id, userId!, username);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(ex.Message);
+        }
 
         var token = _liveKit.CreateToken(
             meeting.RoomName,
@@ -368,6 +410,48 @@ public class MeetingController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    // ==========================
+    // HOST KẾT THÚC CUỘC HỌP
+    // ==========================
+    [HttpPost("{meetingId}/end")]
+    [Authorize]
+    public async Task<IActionResult> EndMeeting(Guid meetingId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null) return NotFound("Meeting not found");
+
+        var normalizedUserId = (userId ?? string.Empty).Trim();
+        var normalizedUsername = username.Trim();
+        var isHost = string.Equals(meeting.HostIdentity, normalizedUserId, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(normalizedUsername)
+                && string.Equals(meeting.HostIdentity, normalizedUsername, StringComparison.OrdinalIgnoreCase));
+
+        if (!isHost)
+        {
+            return Unauthorized("Only meeting host can end meeting");
+        }
+
+        var now = DateTime.UtcNow;
+        meeting.StartedAt ??= now;
+        meeting.EndedAt = now;
+
+        // đóng tất cả session đang active trong meeting
+        var actives = await _db.MeetingParticipants
+            .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
+            .ToListAsync();
+        foreach (var p in actives)
+        {
+            p.LeftAt = now;
+        }
+
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Meeting ended", endedAt = meeting.EndedAt });
     }
 
     // ==========================
