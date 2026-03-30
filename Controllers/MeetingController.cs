@@ -331,6 +331,13 @@ public class MeetingController : ControllerBase
         var meetings = await query
             .OrderByDescending(m => m.CreatedAt)
             .ToListAsync();
+        var meetingIds = meetings.Select(m => m.Id).ToList();
+
+        var activeCounts = await _db.MeetingParticipants
+            .Where(p => meetingIds.Contains(p.MeetingId) && p.LeftAt == null)
+            .GroupBy(p => p.MeetingId)
+            .Select(g => new { MeetingId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.MeetingId, x => x.Count);
 
         var managerMeetingIds = string.IsNullOrWhiteSpace(username)
             ? new HashSet<Guid>()
@@ -351,6 +358,7 @@ public class MeetingController : ControllerBase
             var canManagePoll = isHost || managerMeetingIds.Contains(m.Id);
             var dto = MeetingMapper.ToMeetingListItemDto(m);
             dto.CanManagePoll = canManagePoll;
+            dto.ActiveParticipantCount = activeCounts.TryGetValue(m.Id, out var c) ? c : 0;
             return dto;
         }).ToList();
         return Ok(response);

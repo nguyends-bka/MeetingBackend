@@ -193,6 +193,8 @@ public class AdminController : ControllerBase
                 Passcode = meeting.Passcode,
                 RoomName = meeting.RoomName,
                 CreatedAt = meeting.CreatedAt,
+                StartedAt = meeting.StartedAt,
+                EndedAt = meeting.EndedAt,
                 ParticipantCount = participantCount,
                 ActiveParticipantCount = activeParticipantCount
             });

@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<MeetingPollManager> MeetingPollManagers => Set<MeetingPollManager>();
     public DbSet<MeetingChatMessage> MeetingChatMessages => Set<MeetingChatMessage>();
     public DbSet<MeetingTranscriptEntry> MeetingTranscriptEntries => Set<MeetingTranscriptEntry>();
+    public DbSet<MeetingDocument> MeetingDocuments => Set<MeetingDocument>();
     public DbSet<OrganizationUnit> OrganizationUnits => Set<OrganizationUnit>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

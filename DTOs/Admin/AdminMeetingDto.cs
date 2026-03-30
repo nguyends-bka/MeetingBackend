@@ -10,6 +10,8 @@ public class AdminMeetingDto
     public string Passcode { get; set; } = string.Empty;
     public string RoomName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public DateTime? StartedAt { get; set; }
+    public DateTime? EndedAt { get; set; }
     public int ParticipantCount { get; set; }
     public int ActiveParticipantCount { get; set; }
 }
