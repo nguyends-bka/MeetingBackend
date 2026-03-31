@@ -61,10 +61,12 @@ public class MeetingDocumentsController : ControllerBase
     public async Task<IActionResult> ListDocuments(Guid meetingId)
     {
         var userId = GetUserId();
-        if (!await HasParticipantAsync(meetingId, userId))
-        {
-            return Unauthorized("Only participants can view meeting documents");
-        }
+        var username = GetUsername();
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null) return NotFound("Meeting not found");
+
+        var canView = await HasParticipantAsync(meetingId, userId) || await IsHostAsync(meeting, userId, username);
+        if (!canView) return Unauthorized("Only participants or host can view meeting documents");
 
         var docs = await _db.MeetingDocuments
             .Where(d => d.MeetingId == meetingId)
@@ -92,10 +94,6 @@ public class MeetingDocumentsController : ControllerBase
     {
         var userId = GetUserId();
         var username = GetUsername();
-        if (!await HasParticipantAsync(meetingId, userId))
-        {
-            return Unauthorized("Only participants can upload meeting documents");
-        }
 
         var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return NotFound("Meeting not found");
@@ -162,10 +160,12 @@ public class MeetingDocumentsController : ControllerBase
     public async Task<IActionResult> DownloadFile(Guid meetingId, Guid documentId)
     {
         var userId = GetUserId();
-        if (!await HasParticipantAsync(meetingId, userId))
-        {
-            return Unauthorized("Only participants can download documents");
-        }
+        var username = GetUsername();
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null) return NotFound("Meeting not found");
+
+        var canView = await HasParticipantAsync(meetingId, userId) || await IsHostAsync(meeting, userId, username);
+        if (!canView) return Unauthorized("Only participants or host can download documents");
 
         var doc = await _db.MeetingDocuments.FirstOrDefaultAsync(d =>
             d.MeetingId == meetingId && d.Id == documentId);
@@ -189,10 +189,6 @@ public class MeetingDocumentsController : ControllerBase
     {
         var userId = GetUserId();
         var username = GetUsername();
-        if (!await HasParticipantAsync(meetingId, userId))
-        {
-            return Unauthorized("Only participants can delete meeting documents");
-        }
 
         var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return NotFound("Meeting not found");
