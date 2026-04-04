@@ -112,4 +112,67 @@ public class AuthController : ControllerBase
 
         return Ok(response);
     }
+
+    [HttpPost("login/face")]
+    public async Task<IActionResult> LoginWithFace(FaceLoginRequestDto req)
+    {
+        // Lưu ý:
+        // - Thiết bị gửi embedding dạng vector (float[]) cho frontend.
+        // - Frontend gửi embedding về backend để so khớp với FaceEmbedding đã lưu trong DB.
+        if (req.Embedding == null || req.Embedding.Length == 0)
+            return BadRequest(new { message = "Embedding không hợp lệ" });
+
+        // Cosine similarity (giá trị -1..1). Ngưỡng cần tinh chỉnh theo model thiết bị.
+        const float threshold = 0.75f;
+        var candidates = await _db.Users
+            .Where(u => u.FaceEmbedding != null && u.FaceEmbedding.Length == req.Embedding.Length)
+            .ToListAsync();
+
+        if (candidates.Count == 0)
+            return Unauthorized(new { message = "Không có dữ liệu khuôn mặt phù hợp" });
+
+        User? bestUser = null;
+        float bestScore = float.MinValue;
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.FaceEmbedding == null) continue;
+            var score = CosineSimilarity(candidate.FaceEmbedding, req.Embedding);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestUser = candidate;
+            }
+        }
+
+        if (bestUser == null || bestScore < threshold)
+            return Unauthorized(new { message = "Face không khớp" });
+
+        var token = _jwt.CreateToken(bestUser);
+
+        var response = new LoginResponseDto
+        {
+            Token = token,
+            User = UserMapper.ToAuthUserDto(bestUser)
+        };
+
+        return Ok(response);
+    }
+
+    private static float CosineSimilarity(float[] a, float[] b)
+    {
+        double dot = 0;
+        double normA = 0;
+        double normB = 0;
+
+        for (int i = 0; i < a.Length; i++)
+        {
+            dot += (double)a[i] * b[i];
+            normA += (double)a[i] * a[i];
+            normB += (double)b[i] * b[i];
+        }
+
+        if (normA <= 0 || normB <= 0) return 0;
+        return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB)));
+    }
 }
