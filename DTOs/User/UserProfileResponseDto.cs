@@ -13,5 +13,6 @@ public class UserProfileResponseDto
     public Guid? OrganizationUnitId { get; set; }
     public string? OrganizationUnitName { get; set; }
     public string? FaceTemplate { get; set; }
+    public bool HasFaceEmbedding { get; set; }
     public DateTime CreatedAt { get; set; }
 }

@@ -19,4 +19,5 @@ public class UserDto
     public Guid? OrganizationUnitId { get; set; }
     public string? OrganizationUnitName { get; set; }
     public string? FaceTemplate { get; set; }
+    public bool HasFaceEmbedding { get; set; }
 }

@@ -182,6 +182,35 @@ public class UserController : ControllerBase
         return Ok(response);
     }
 
+    /// <summary>Lưu embedding khuôn mặt từ thiết bị (sau WebSocket /registerface) cho user đang đăng nhập.</summary>
+    [HttpPut("profile/face-embedding")]
+    public async Task<IActionResult> RegisterFaceEmbedding([FromBody] RegisterFaceEmbeddingRequestDto request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        if (request.Embedding == null || request.Embedding.Length == 0)
+            return BadRequest(new { message = "Embedding không hợp lệ" });
+
+        var user = await _db.Users
+            .FirstOrDefaultAsync(u => u.Id.ToString() == userId);
+
+        if (user == null)
+            return NotFound("User not found");
+
+        user.FaceEmbedding = request.Embedding;
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            message = "Đăng ký khuôn mặt thành công",
+            hasFaceEmbedding = true,
+        });
+    }
+
     // ==========================
     // ĐỔI MẬT KHẨU
     // ==========================

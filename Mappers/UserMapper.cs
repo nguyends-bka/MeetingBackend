@@ -19,7 +19,8 @@ public static class UserMapper
             AcademicRank = user.AcademicRank,
             AcademicDegree = user.AcademicDegree,
             OrganizationUnitId = user.OrganizationUnitId,
-            FaceTemplate = user.FaceTemplate
+            FaceTemplate = user.FaceTemplate,
+            HasFaceEmbedding = user.FaceEmbedding != null && user.FaceEmbedding.Length > 0
         };
     }
 
@@ -38,6 +39,7 @@ public static class UserMapper
             OrganizationUnitId = user.OrganizationUnitId,
             OrganizationUnitName = organizationUnitName,
             FaceTemplate = user.FaceTemplate,
+            HasFaceEmbedding = user.FaceEmbedding != null && user.FaceEmbedding.Length > 0,
             CreatedAt = user.CreatedAt
         };
     }
@@ -56,7 +58,8 @@ public static class UserMapper
             AcademicDegree = user.AcademicDegree,
             OrganizationUnitId = user.OrganizationUnitId,
             OrganizationUnitName = organizationUnitName,
-            FaceTemplate = user.FaceTemplate
+            FaceTemplate = user.FaceTemplate,
+            HasFaceEmbedding = user.FaceEmbedding != null && user.FaceEmbedding.Length > 0
         };
     }
 }
