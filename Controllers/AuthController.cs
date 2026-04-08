@@ -123,7 +123,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Embedding không hợp lệ" });
 
         // Cosine similarity (giá trị -1..1). Ngưỡng cần tinh chỉnh theo model thiết bị.
-        const float threshold = 0.75f;
+        const float threshold = 0.85f;
         var candidates = await _db.Users
             .Where(u => u.FaceEmbedding != null && u.FaceEmbedding.Length == req.Embedding.Length)
             .ToListAsync();
