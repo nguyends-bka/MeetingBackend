@@ -123,13 +123,13 @@ public class AdminController : ControllerBase
             return BadRequest(new { message = "Bạn không thể xóa chính mình" });
         }
 
-        // Kiểm tra xem user có phải là host của meeting nào không
-        var hasMeetings = await _db.Meetings
-            .AnyAsync(m => m.HostIdentity == user.Id.ToString());
+        var uid = user.Id.ToString();
+        var hasMeetings = await _db.Meetings.AnyAsync(m => m.HostIdentity == uid);
+        var isCoHostElsewhere = await _db.MeetingCoHosts.AnyAsync(c => c.HostUserId == uid);
 
-        if (hasMeetings)
+        if (hasMeetings || isCoHostElsewhere)
         {
-            return BadRequest(new { message = "Không thể xóa user đang là host của meeting. Vui lòng xóa các meeting trước." });
+            return BadRequest(new { message = "Không thể xóa user đang là chủ trì/đồng chủ trì cuộc họp. Vui lòng xóa hoặc chuyển quyền trước." });
         }
 
         _db.Users.Remove(user);

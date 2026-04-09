@@ -7,6 +7,7 @@ using MeetingBackend.Data;
 using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
 using MeetingBackend.Policies;
+using MeetingBackend.Services;
 using Npgsql;
 
 namespace MeetingBackend.Controllers;
@@ -51,7 +52,7 @@ public class MeetingPollsController : ControllerBase
         if (role == "Admin") return true;
         var m = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == meetingId);
         if (m == null) return false;
-        return IsHostIdentityMatch(m.HostIdentity?.Trim() ?? string.Empty, userId, username);
+        return await MeetingHostAuth.IsAnyHostAsync(_db, m, userId, username);
     }
 
     private async Task<bool> IsPollManagerAsync(Guid meetingId, string? username)
@@ -67,16 +68,8 @@ public class MeetingPollsController : ControllerBase
     {
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(x => x.Id == meetingId);
         if (meeting == null) return false;
-        if (IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username)) return true;
+        if (await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username)) return true;
         return await IsPollManagerAsync(meetingId, username);
-    }
-
-    private static bool IsHostIdentityMatch(string hostIdentity, string userId, string? username)
-    {
-        if (string.Equals(hostIdentity, userId, StringComparison.OrdinalIgnoreCase)) return true;
-        if (!string.IsNullOrWhiteSpace(username)
-            && string.Equals(hostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
     }
 
     private async Task<bool> CanViewPollsAsync(Guid meetingId, string userId, string? role, string? username)
@@ -105,7 +98,7 @@ public class MeetingPollsController : ControllerBase
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)
             return NotFound("Meeting not found");
-        var isHostOrAdmin = role == "Admin" || IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username);
+        var isHostOrAdmin = role == "Admin" || await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username);
         var isPollManager = await IsPollManagerAsync(meetingId, username);
 
         IQueryable<MeetingPoll> pollsQuery = _db.MeetingPolls
@@ -497,7 +490,7 @@ public class MeetingPollsController : ControllerBase
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)
             return NotFound("Meeting not found");
-        if (!IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username))
+        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
             return Unauthorized("Only meeting host can add poll managers");
 
         var targetUsername = dto.Username?.Trim() ?? string.Empty;
@@ -536,7 +529,7 @@ public class MeetingPollsController : ControllerBase
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)
             return NotFound("Meeting not found");
-        if (!IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, actorUsername))
+        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, actorUsername))
             return Unauthorized("Only meeting host can remove poll managers");
 
         var target = (username ?? string.Empty).Trim();

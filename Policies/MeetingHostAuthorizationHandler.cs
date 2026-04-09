@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using MeetingBackend.Data;
+using MeetingBackend.Services;
 using System.Security.Claims;
 
 namespace MeetingBackend.Policies;
@@ -51,9 +52,13 @@ public class MeetingHostAuthorizationHandler : AuthorizationHandler<MeetingHostR
                     .AsNoTracking()
                     .FirstOrDefaultAsync(m => m.Id == meetingId);
 
-                if (meeting != null && meeting.HostIdentity == userId)
+                if (meeting != null)
                 {
-                    context.Succeed(requirement);
+                    var username = context.User.FindFirst("username")?.Value;
+                    if (await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
+                    {
+                        context.Succeed(requirement);
+                    }
                 }
             }
         }

@@ -25,6 +25,26 @@ public class UserController : ControllerBase
     // ==========================
     // LẤY THÔNG TIN USER HIỆN TẠI
     // ==========================
+    /// <summary>Tra cứu user theo username (để mời họp, hiển thị họ tên).</summary>
+    [HttpGet("lookup")]
+    public async Task<IActionResult> LookupByUsername([FromQuery] string username)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            return BadRequest(new { message = "Username không được để trống" });
+
+        var u = await _db.Users.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Username.ToLower() == username.Trim().ToLower());
+        if (u == null)
+            return NotFound(new { message = "Không tìm thấy người dùng" });
+
+        return Ok(new UserLookupByUsernameDto
+        {
+            UserId = u.Id.ToString(),
+            Username = u.Username,
+            FullName = string.IsNullOrWhiteSpace(u.FullName) ? null : u.FullName.Trim()
+        });
+    }
+
     [HttpGet("profile")]
     public async Task<IActionResult> GetProfile()
     {

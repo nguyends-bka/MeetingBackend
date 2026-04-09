@@ -3,6 +3,7 @@ using System.Text.Json;
 using MeetingBackend.Data;
 using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
+using MeetingBackend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,20 +35,12 @@ public class MeetingMinutesController : ControllerBase
     private static long ToUnixMs(DateTime utc) =>
         new DateTimeOffset(DateTime.SpecifyKind(utc, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 
-    private static bool IsHostIdentityMatch(string hostIdentity, string userId, string? username)
-    {
-        if (string.Equals(hostIdentity, userId, StringComparison.OrdinalIgnoreCase)) return true;
-        if (!string.IsNullOrWhiteSpace(username)
-            && string.Equals(hostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase)) return true;
-        return false;
-    }
-
     private async Task<bool> CanAccessMeetingAsync(Guid meetingId, string userId, string? username, string? role)
     {
         if (role == "Admin") return true;
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return false;
-        if (IsHostIdentityMatch(meeting.HostIdentity?.Trim() ?? string.Empty, userId, username)) return true;
+        if (await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username)) return true;
         return await _db.MeetingParticipants.AsNoTracking()
             .AnyAsync(p => p.MeetingId == meetingId && p.UserId == userId);
     }

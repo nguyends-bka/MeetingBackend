@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using MeetingBackend.Data;
 using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
+using MeetingBackend.Services;
 using System.Security.Claims;
 
 namespace MeetingBackend.Controllers;
@@ -42,14 +43,8 @@ public class MeetingDocumentsController : ControllerBase
             p.MeetingId == meetingId && p.UserId == userId);
     }
 
-    private async Task<bool> IsHostAsync(Meeting meeting, string userId, string username)
-    {
-        if (string.Equals(meeting.HostIdentity, userId, StringComparison.OrdinalIgnoreCase)) return true;
-        if (!string.IsNullOrWhiteSpace(username) &&
-            string.Equals(meeting.HostIdentity, username, StringComparison.OrdinalIgnoreCase))
-            return true;
-        return false;
-    }
+    private Task<bool> IsHostAsync(Meeting meeting, string userId, string username) =>
+        MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, string.IsNullOrWhiteSpace(username) ? null : username);
 
     private static string GetSafeFileName(string fileName)
     {

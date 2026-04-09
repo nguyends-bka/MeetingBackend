@@ -33,6 +33,11 @@ public class MeetingController : ControllerBase
         _codeService = codeService;
     }
 
+    private static DateTime FromUnixMs(long unixMs)
+    {
+        return DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime;
+    }
+
     // Helper method để ghi lại lịch sử vào meeting
     private async Task<MeetingParticipant> RecordJoinAsync(Guid meetingId, string userId, string username)
     {
@@ -174,7 +179,8 @@ public class MeetingController : ControllerBase
             MeetingId = meeting.Id,
             MeetingCode = meeting.MeetingCode,
             ParticipantId = participant.Id,
-            HostIdentity = meeting.HostIdentity
+            HostIdentity = meeting.HostIdentity,
+            IsMeetingHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId!, username),
         };
 
         return Ok(response);
@@ -239,7 +245,8 @@ public class MeetingController : ControllerBase
             MeetingId = meeting.Id,
             MeetingCode = meeting.MeetingCode,
             ParticipantId = participant.Id,
-            HostIdentity = meeting.HostIdentity
+            HostIdentity = meeting.HostIdentity,
+            IsMeetingHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId!, username),
         };
 
         return Ok(response);
@@ -297,7 +304,8 @@ public class MeetingController : ControllerBase
             meetingCode = meeting.MeetingCode,
             title = meeting.Title,
             participantId = participant.Id,
-            hostIdentity = meeting.HostIdentity
+            hostIdentity = meeting.HostIdentity,
+            isMeetingHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId!, username),
         });
     }
 
@@ -322,10 +330,16 @@ public class MeetingController : ControllerBase
 
         IQueryable<Meeting> query = _db.Meetings;
 
-        // Nếu không phải Admin, chỉ lấy meeting của user hiện tại
+        HashSet<Guid> coHostMeetingIdSet = new();
         if (userRole != "Admin")
         {
-            query = query.Where(m => m.HostIdentity == userId);
+            var coIds = await _db.MeetingCoHosts
+                .AsNoTracking()
+                .Where(c => c.HostUserId == userId)
+                .Select(c => c.MeetingId)
+                .ToListAsync();
+            coHostMeetingIdSet = coIds.ToHashSet();
+            query = query.Where(m => m.HostIdentity == userId || coHostMeetingIdSet.Contains(m.Id));
         }
 
         var meetings = await query
@@ -352,16 +366,80 @@ public class MeetingController : ControllerBase
         var normalizedUsername = username.Trim();
         var response = meetings.Select(m =>
         {
-            var isHost = string.Equals(m.HostIdentity, normalizedUserId, StringComparison.OrdinalIgnoreCase)
+            var isPrimaryHost = string.Equals(m.HostIdentity, normalizedUserId, StringComparison.OrdinalIgnoreCase)
                 || (!string.IsNullOrWhiteSpace(normalizedUsername)
                     && string.Equals(m.HostIdentity, normalizedUsername, StringComparison.OrdinalIgnoreCase));
-            var canManagePoll = isHost || managerMeetingIds.Contains(m.Id);
+            var isCoHost = coHostMeetingIdSet.Contains(m.Id);
+            var isMeetingHost = isPrimaryHost || isCoHost;
+            var canManagePoll = isMeetingHost || managerMeetingIds.Contains(m.Id);
             var dto = MeetingMapper.ToMeetingListItemDto(m);
+            dto.IsMeetingHost = isMeetingHost;
             dto.CanManagePoll = canManagePoll;
             dto.ActiveParticipantCount = activeCounts.TryGetValue(m.Id, out var c) ? c : 0;
             return dto;
         }).ToList();
         return Ok(response);
+    }
+
+    // ==========================
+    // HOST CHỈNH SỬA CUỘC HỌP (khi chưa diễn ra)
+    // ==========================
+    [HttpPut("{meetingId:guid}")]
+    [Authorize]
+    public async Task<IActionResult> UpdateMeeting(Guid meetingId, [FromBody] UpdateMeetingRequestDto request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            return BadRequest("Tiêu đề cuộc họp không được để trống");
+        }
+
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null) return NotFound("Meeting not found");
+
+        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId ?? string.Empty, username))
+        {
+            return Unauthorized("Only meeting host can update this meeting");
+        }
+
+        if (meeting.EndedAt.HasValue)
+        {
+            return BadRequest("Cuộc họp đã kết thúc, không thể chỉnh sửa");
+        }
+
+        var activeCount = await _db.MeetingParticipants
+            .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
+            .CountAsync();
+        if (activeCount > 0)
+        {
+            return BadRequest("Cuộc họp đang diễn ra, không thể chỉnh sửa");
+        }
+
+        var startAtUtc = FromUnixMs(request.StartAt);
+        DateTime? estimatedEndUtc = request.EstimatedEndAt.HasValue
+            ? FromUnixMs(request.EstimatedEndAt.Value)
+            : null;
+        if (estimatedEndUtc.HasValue && estimatedEndUtc.Value <= startAtUtc)
+        {
+            return BadRequest("Thời gian kết thúc dự kiến phải sau thời gian bắt đầu");
+        }
+
+        meeting.Title = request.Title.Trim();
+        // Hệ thống hiện dùng CreatedAt làm thời gian bắt đầu hiển thị.
+        meeting.CreatedAt = startAtUtc;
+        // Tái sử dụng StartedAt để lưu thời gian kết thúc dự kiến (không ảnh hưởng trạng thái cuộc họp hiện tại).
+        meeting.StartedAt = estimatedEndUtc;
+
+        await _db.SaveChangesAsync();
+
+        var dto = MeetingMapper.ToMeetingListItemDto(meeting);
+        dto.IsMeetingHost = true;
+        dto.CanManagePoll = true;
+        dto.ActiveParticipantCount = 0;
+        return Ok(dto);
     }
 
     // ==========================
@@ -434,13 +512,7 @@ public class MeetingController : ControllerBase
         var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return NotFound("Meeting not found");
 
-        var normalizedUserId = (userId ?? string.Empty).Trim();
-        var normalizedUsername = username.Trim();
-        var isHost = string.Equals(meeting.HostIdentity, normalizedUserId, StringComparison.OrdinalIgnoreCase)
-            || (!string.IsNullOrWhiteSpace(normalizedUsername)
-                && string.Equals(meeting.HostIdentity, normalizedUsername, StringComparison.OrdinalIgnoreCase));
-
-        if (!isHost)
+        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId ?? string.Empty, username))
         {
             return Unauthorized("Only meeting host can end meeting");
         }
@@ -463,6 +535,350 @@ public class MeetingController : ControllerBase
     }
 
     // ==========================
+    // DANH SÁCH MỜI THAM GIA
+    // ==========================
+    [HttpGet("{meetingId:guid}/invitees")]
+    [Authorize]
+    public async Task<IActionResult> ListInvitees(Guid meetingId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username");
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        var meeting = await _db.Meetings.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
+            return Unauthorized("Only meeting host or Admin can view invitees");
+
+        var inviteeRows = await _db.MeetingInvitees
+            .AsNoTracking()
+            .Where(x => x.MeetingId == meetingId)
+            .OrderBy(x => x.Username)
+            .ToListAsync();
+
+        if (inviteeRows.Count == 0)
+            return Ok(new List<MeetingInviteeDto>());
+
+        var namesToResolve = inviteeRows
+            .Select(x => x.Username)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToLower())
+            .Distinct()
+            .ToList();
+
+        var userMap = await _db.Users
+            .AsNoTracking()
+            .Where(u => namesToResolve.Contains(u.Username.ToLower()))
+            .ToDictionaryAsync(
+                u => u.Username.ToLower(),
+                u => string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName!);
+
+        var list = inviteeRows.Select(row =>
+        {
+            var un = row.Username.Trim().ToLower();
+            return new MeetingInviteeDto
+            {
+                Username = row.Username,
+                FullName = userMap.TryGetValue(un, out var fn) ? fn : row.Username,
+            };
+        }).ToList();
+
+        return Ok(list);
+    }
+
+    [HttpPost("{meetingId:guid}/invitees")]
+    [Authorize]
+    public async Task<IActionResult> AddInvitee(Guid meetingId, [FromBody] AddMeetingInviteeRequestDto request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        if (string.IsNullOrWhiteSpace(request.Username))
+            return BadRequest("Username is required");
+
+        var meeting = await _db.Meetings.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
+            return Unauthorized("Only meeting host or Admin can add invitees");
+
+        var targetUsername = request.Username.Trim();
+        var target = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == targetUsername.ToLower());
+        if (target == null)
+            return NotFound(new { message = "Không tìm thấy người dùng với username này" });
+
+        if (MeetingHostAuth.IsPrimaryHost(meeting, target.Id.ToString(), target.Username))
+            return BadRequest("Chủ trì không cần thêm vào danh sách mời");
+
+        if (await MeetingHostAuth.IsCoHostAsync(_db, meetingId, target.Id.ToString()))
+            return BadRequest("Người này đã là đồng chủ trì");
+
+        var exists = await _db.MeetingInvitees
+            .AnyAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == target.Username.ToLower());
+        if (exists)
+            return Conflict(new { message = "Người dùng đã có trong danh sách mời" });
+
+        _db.MeetingInvitees.Add(new MeetingInvitee
+        {
+            Id = Guid.NewGuid(),
+            MeetingId = meetingId,
+            Username = target.Username,
+        });
+        await _db.SaveChangesAsync();
+
+        return Ok(new MeetingInviteeDto
+        {
+            Username = target.Username,
+            FullName = string.IsNullOrWhiteSpace(target.FullName) ? target.Username : target.FullName!.Trim(),
+        });
+    }
+
+    [HttpDelete("{meetingId:guid}/invitees/{username}")]
+    [Authorize]
+    public async Task<IActionResult> RemoveInvitee(Guid meetingId, string username)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var actorUsername = User.FindFirstValue("username") ?? string.Empty;
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        var meeting = await _db.Meetings.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, actorUsername))
+            return Unauthorized("Only meeting host or Admin can remove invitees");
+
+        var target = Uri.UnescapeDataString(username ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(target))
+            return BadRequest("Username is required");
+
+        var row = await _db.MeetingInvitees
+            .FirstOrDefaultAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == target.ToLower());
+        if (row == null)
+            return NotFound("Invitee not found");
+
+        _db.MeetingInvitees.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Removed" });
+    }
+
+    // ==========================
+    // ĐỒNG CHỦ TRÌ (nâng từ danh sách mời)
+    // ==========================
+    [HttpGet("{meetingId:guid}/co-hosts")]
+    [Authorize]
+    public async Task<IActionResult> ListCoHosts(Guid meetingId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username");
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        var meeting = await _db.Meetings.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
+            return Unauthorized("Only meeting host or Admin can view co-hosts");
+
+        var rows = await _db.MeetingCoHosts
+            .AsNoTracking()
+            .Where(x => x.MeetingId == meetingId)
+            .OrderBy(x => x.Username)
+            .ToListAsync();
+
+        if (rows.Count == 0)
+            return Ok(new List<MeetingCoHostDto>());
+
+        var namesToResolve = rows
+            .Select(x => x.Username)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToLower())
+            .Distinct()
+            .ToList();
+
+        var userMap = await _db.Users
+            .AsNoTracking()
+            .Where(u => namesToResolve.Contains(u.Username.ToLower()))
+            .ToDictionaryAsync(
+                u => u.Username.ToLower(),
+                u => string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName!);
+
+        var list = rows.Select(row =>
+        {
+            var un = row.Username.Trim().ToLower();
+            return new MeetingCoHostDto
+            {
+                HostUserId = row.HostUserId,
+                Username = row.Username,
+                FullName = userMap.TryGetValue(un, out var fn) ? fn : row.Username,
+            };
+        }).ToList();
+
+        return Ok(list);
+    }
+
+    [HttpPost("{meetingId:guid}/co-hosts/promote")]
+    [Authorize]
+    public async Task<IActionResult> PromoteInviteeToCoHost(Guid meetingId, [FromBody] PromoteInviteeToCoHostRequestDto request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        if (string.IsNullOrWhiteSpace(request.Username))
+            return BadRequest("Username is required");
+
+        var meeting = await _db.Meetings.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
+            return Unauthorized("Only meeting host or Admin can promote invitees");
+
+        var targetUsername = request.Username.Trim();
+        var inviteeRow = await _db.MeetingInvitees
+            .FirstOrDefaultAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == targetUsername.ToLower());
+        if (inviteeRow == null)
+            return BadRequest(new { message = "Người này không nằm trong danh sách mời" });
+
+        var target = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == inviteeRow.Username.Trim().ToLower());
+        if (target == null)
+            return NotFound(new { message = "Không tìm thấy người dùng" });
+
+        if (MeetingHostAuth.IsPrimaryHost(meeting, target.Id.ToString(), target.Username))
+            return BadRequest("Người này đã là chủ trì");
+
+        if (await MeetingHostAuth.IsCoHostAsync(_db, meetingId, target.Id.ToString()))
+            return Conflict(new { message = "Người này đã là đồng chủ trì" });
+
+        _db.MeetingCoHosts.Add(new MeetingCoHost
+        {
+            Id = Guid.NewGuid(),
+            MeetingId = meetingId,
+            HostUserId = target.Id.ToString(),
+            Username = target.Username,
+        });
+        _db.MeetingInvitees.Remove(inviteeRow);
+        await _db.SaveChangesAsync();
+
+        return Ok(new MeetingCoHostDto
+        {
+            HostUserId = target.Id.ToString(),
+            Username = target.Username,
+            FullName = string.IsNullOrWhiteSpace(target.FullName) ? target.Username : target.FullName!.Trim(),
+        });
+    }
+
+    [HttpPost("{meetingId:guid}/co-hosts/demote")]
+    [Authorize]
+    public async Task<IActionResult> DemoteCoHostToInvitee(Guid meetingId, [FromBody] DemoteCoHostToInviteeRequestDto request)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username") ?? string.Empty;
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+        if (string.IsNullOrWhiteSpace(request.Username))
+            return BadRequest("Username is required");
+
+        var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
+            return Unauthorized("Only meeting host or Admin can change role");
+
+        var targetUsername = request.Username.Trim();
+        var cohost = await _db.MeetingCoHosts
+            .FirstOrDefaultAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == targetUsername.ToLower());
+        if (cohost == null)
+            return NotFound(new { message = "Không tìm thấy đồng chủ trì" });
+
+        _db.MeetingCoHosts.Remove(cohost);
+        var inviteeExists = await _db.MeetingInvitees
+            .AnyAsync(x => x.MeetingId == meetingId && x.Username.ToLower() == cohost.Username.ToLower());
+        if (!inviteeExists)
+        {
+            _db.MeetingInvitees.Add(new MeetingInvitee
+            {
+                Id = Guid.NewGuid(),
+                MeetingId = meetingId,
+                Username = cohost.Username,
+            });
+        }
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Role changed to member" });
+    }
+
+    [HttpDelete("{meetingId:guid}/co-hosts/{hostUserId}")]
+    [Authorize]
+    public async Task<IActionResult> RemoveCoHost(Guid meetingId, string hostUserId)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                     ?? User.FindFirstValue(ClaimTypes.Name);
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var actorUsername = User.FindFirstValue("username") ?? string.Empty;
+
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
+        var meeting = await _db.Meetings.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null)
+            return NotFound("Meeting not found");
+
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, actorUsername))
+            return Unauthorized("Only meeting host or Admin can remove co-hosts");
+
+        var decoded = Uri.UnescapeDataString(hostUserId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(decoded))
+            return BadRequest("hostUserId is required");
+
+        var row = await _db.MeetingCoHosts
+            .FirstOrDefaultAsync(x => x.MeetingId == meetingId && x.HostUserId == decoded);
+        if (row == null)
+            return NotFound("Co-host not found");
+
+        _db.MeetingCoHosts.Remove(row);
+        await _db.SaveChangesAsync();
+        return Ok(new { message = "Removed" });
+    }
+
+    // ==========================
     // XEM LỊCH SỬ VÀO/RA CỦA MEETING
     // Host: chỉ xem được meeting của mình
     // Admin: xem được tất cả meetings
@@ -474,16 +890,18 @@ public class MeetingController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
         var userRole = User.FindFirstValue(ClaimTypes.Role);
+        var username = User.FindFirstValue("username");
 
-        // Kiểm tra user có phải host không
+        if (string.IsNullOrEmpty(userId))
+            return Unauthorized("User identity not found");
+
         var meeting = await _db.Meetings
             .FirstOrDefaultAsync(m => m.Id == meetingId);
 
         if (meeting == null)
             return NotFound("Meeting not found");
 
-        // Chỉ host hoặc Admin mới xem được lịch sử
-        if (userRole != "Admin" && meeting.HostIdentity != userId)
+        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
             return Unauthorized("Only meeting host or Admin can view history");
 
         var participants = await _db.MeetingParticipants

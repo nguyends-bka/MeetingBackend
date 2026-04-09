@@ -10,4 +10,7 @@ public class JoinMeetingResponseDto
     public Guid ParticipantId { get; set; }
     public string? Title { get; set; }
     public string HostIdentity { get; set; } = string.Empty;
+
+    /// <summary>User hiện tại là chủ trì gốc hoặc đồng chủ trì (quyền điều khiển phòng).</summary>
+    public bool IsMeetingHost { get; set; }
 }

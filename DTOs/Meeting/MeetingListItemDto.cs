@@ -7,6 +7,9 @@ public class MeetingListItemDto
     public string HostName { get; set; } = string.Empty;
     public string HostIdentity { get; set; } = string.Empty;
     public bool CanManagePoll { get; set; }
+
+    /// <summary>User hiện tại là chủ trì gốc hoặc đồng chủ trì.</summary>
+    public bool IsMeetingHost { get; set; }
     public string MeetingCode { get; set; } = string.Empty;
     public string Passcode { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }

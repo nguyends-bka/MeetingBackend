@@ -3,6 +3,7 @@ using System;
 using MeetingBackend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MeetingBackend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260409043352_AddMeetingInvitees")]
+    partial class AddMeetingInvitees
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -102,31 +105,6 @@ namespace MeetingBackend.Migrations
                     b.ToTable("MeetingChatMessages");
                 });
 
-            modelBuilder.Entity("MeetingBackend.Entities.MeetingCoHost", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("HostUserId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("MeetingId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MeetingId", "HostUserId")
-                        .IsUnique();
-
-                    b.ToTable("MeetingCoHosts");
-                });
-
             modelBuilder.Entity("MeetingBackend.Entities.MeetingDocument", b =>
                 {
                     b.Property<Guid>("Id")
@@ -175,16 +153,18 @@ namespace MeetingBackend.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid>("MeetingId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Username")
-                        .IsRequired()
-                        .HasColumnType("text");
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("MeetingId", "Username")
+                    b.HasIndex("MeetingId", "UserId")
                         .IsUnique();
 
                     b.ToTable("MeetingInvitees");
@@ -492,17 +472,6 @@ namespace MeetingBackend.Migrations
                         .HasForeignKey("MeetingId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-                });
-
-            modelBuilder.Entity("MeetingBackend.Entities.MeetingCoHost", b =>
-                {
-                    b.HasOne("MeetingBackend.Entities.Meeting", "Meeting")
-                        .WithMany()
-                        .HasForeignKey("MeetingId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Meeting");
                 });
 
             modelBuilder.Entity("MeetingBackend.Entities.MeetingDocument", b =>

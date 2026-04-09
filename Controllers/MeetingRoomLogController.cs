@@ -2,6 +2,7 @@ using System.Security.Claims;
 using MeetingBackend.Data;
 using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
+using MeetingBackend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -30,9 +31,7 @@ public class MeetingRoomLogController : ControllerBase
         if (role == "Admin") return true;
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return false;
-        if (string.Equals(meeting.HostIdentity, userId, StringComparison.OrdinalIgnoreCase)) return true;
-        if (!string.IsNullOrWhiteSpace(username)
-            && string.Equals(meeting.HostIdentity, username, StringComparison.OrdinalIgnoreCase)) return true;
+        if (await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username)) return true;
         return await _db.MeetingParticipants.AsNoTracking()
             .AnyAsync(p => p.MeetingId == meetingId && p.UserId == userId);
     }

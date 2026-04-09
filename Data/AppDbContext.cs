@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
     public DbSet<MeetingTranscriptEntry> MeetingTranscriptEntries => Set<MeetingTranscriptEntry>();
     public DbSet<MeetingDocument> MeetingDocuments => Set<MeetingDocument>();
     public DbSet<OrganizationUnit> OrganizationUnits => Set<OrganizationUnit>();
+    public DbSet<MeetingInvitee> MeetingInvitees => Set<MeetingInvitee>();
+    public DbSet<MeetingCoHost> MeetingCoHosts => Set<MeetingCoHost>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -45,6 +47,24 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(x => new { x.MeetingId, x.Username }).IsUnique();
             e.HasOne<Meeting>()
+                .WithMany()
+                .HasForeignKey(x => x.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingInvitee>(e =>
+        {
+            e.HasIndex(x => new { x.MeetingId, x.Username }).IsUnique();
+            e.HasOne(x => x.Meeting)
+                .WithMany()
+                .HasForeignKey(x => x.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingCoHost>(e =>
+        {
+            e.HasIndex(x => new { x.MeetingId, x.HostUserId }).IsUnique();
+            e.HasOne(x => x.Meeting)
                 .WithMany()
                 .HasForeignKey(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
