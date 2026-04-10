@@ -31,9 +31,9 @@ namespace MeetingBackend.Entities
 
         public string? FaceTemplate { get; set; } // Chuỗi template khuôn mặt (<= 512 byte)
 
-        // Khuôn mặt dạng embedding (vector) để thực hiện so khớp khi đăng nhập bằng Face.
-        // Mapping sang PostgreSQL array (real[]).
-        public float[]? FaceEmbedding { get; set; }
+        // Khuôn mặt dạng embedding nhiều góc: [straight, right, left, up].
+        // Lưu thành mảng 2 chiều trong PostgreSQL (real[][]) để dễ quan sát theo từng góc.
+        public float[,]? FaceEmbedding { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }

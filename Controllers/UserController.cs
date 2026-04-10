@@ -205,16 +205,25 @@ public class UserController : ControllerBase
         if (string.IsNullOrEmpty(userId))
             return Unauthorized("User identity not found");
 
-        if (request.Embedding == null || request.Embedding.Length == 0)
-            return BadRequest(new { message = "Embedding không hợp lệ" });
+        if (!TryBuildMultiAngleEmbedding(request, out var mergedEmbedding, out var errorMessage))
+            return BadRequest(new { message = errorMessage });
 
-        var user = await _db.Users
-            .FirstOrDefaultAsync(u => u.Id.ToString() == userId);
+        if (!Guid.TryParse(userId, out var userGuid))
+            return Unauthorized("User identity not found");
 
-        if (user == null)
+        var userExists = await _db.Users
+            .AsNoTracking()
+            .AnyAsync(u => u.Id == userGuid);
+
+        if (!userExists)
             return NotFound("User not found");
 
-        user.FaceEmbedding = request.Embedding;
+        // Không load entity đầy đủ để tránh lỗi materialize dữ liệu FaceEmbedding cũ (1D).
+        // Chỉ attach stub và cập nhật riêng trường FaceEmbedding.
+        var user = new User { Id = userGuid };
+        _db.Users.Attach(user);
+        user.FaceEmbedding = mergedEmbedding;
+        _db.Entry(user).Property(x => x.FaceEmbedding).IsModified = true;
         await _db.SaveChangesAsync();
 
         return Ok(new
@@ -222,6 +231,44 @@ public class UserController : ControllerBase
             message = "Đăng ký khuôn mặt thành công",
             hasFaceEmbedding = true,
         });
+    }
+
+    private static bool TryBuildMultiAngleEmbedding(
+        RegisterFaceEmbeddingRequestDto request,
+        out float[,] mergedEmbedding,
+        out string errorMessage)
+    {
+        mergedEmbedding = new float[0, 0];
+        errorMessage = string.Empty;
+
+        if (request.Straight == null || request.Right == null || request.Left == null || request.Up == null)
+        {
+            errorMessage = "Thiếu embedding cho một trong các góc: straight/right/left/up";
+            return false;
+        }
+
+        if (request.Straight.Length == 0 || request.Right.Length == 0 || request.Left.Length == 0 || request.Up.Length == 0)
+        {
+            errorMessage = "Embedding không hợp lệ";
+            return false;
+        }
+
+        var dim = request.Straight.Length;
+        if (request.Right.Length != dim || request.Left.Length != dim || request.Up.Length != dim)
+        {
+            errorMessage = "Embedding các góc phải cùng kích thước";
+            return false;
+        }
+
+        mergedEmbedding = new float[4, dim];
+        for (var i = 0; i < dim; i++)
+        {
+            mergedEmbedding[0, i] = request.Straight[i];
+            mergedEmbedding[1, i] = request.Right[i];
+            mergedEmbedding[2, i] = request.Left[i];
+            mergedEmbedding[3, i] = request.Up[i];
+        }
+        return true;
     }
 
     // ==========================

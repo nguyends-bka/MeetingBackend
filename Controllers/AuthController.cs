@@ -125,7 +125,7 @@ public class AuthController : ControllerBase
         // Cosine similarity (giá trị -1..1). Ngưỡng cần tinh chỉnh theo model thiết bị.
         const float threshold = 0.85f;
         var candidates = await _db.Users
-            .Where(u => u.FaceEmbedding != null && u.FaceEmbedding.Length == req.Embedding.Length)
+            .Where(u => u.FaceEmbedding != null)
             .ToListAsync();
 
         if (candidates.Count == 0)
@@ -137,7 +137,7 @@ public class AuthController : ControllerBase
         foreach (var candidate in candidates)
         {
             if (candidate.FaceEmbedding == null) continue;
-            var score = CosineSimilarity(candidate.FaceEmbedding, req.Embedding);
+            var score = BestSimilarityFromStoredEmbeddings(candidate.FaceEmbedding, req.Embedding);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -174,5 +174,26 @@ public class AuthController : ControllerBase
 
         if (normA <= 0 || normB <= 0) return 0;
         return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB)));
+    }
+
+    private static float BestSimilarityFromStoredEmbeddings(float[,] stored, float[] probe)
+    {
+        if (probe.Length == 0 || stored.Length == 0) return 0;
+        var rows = stored.GetLength(0);
+        var cols = stored.GetLength(1);
+        if (rows <= 0 || cols <= 0 || cols != probe.Length) return 0;
+
+        var best = float.MinValue;
+        var segment = new float[cols];
+        for (var r = 0; r < rows; r++)
+        {
+            for (var c = 0; c < cols; c++)
+            {
+                segment[c] = stored[r, c];
+            }
+            var score = CosineSimilarity(segment, probe);
+            if (score > best) best = score;
+        }
+        return best;
     }
 }
