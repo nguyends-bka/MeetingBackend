@@ -112,6 +112,12 @@ public class UserController : ControllerBase
         if (user == null)
             return NotFound("User not found");
 
+        if (string.IsNullOrWhiteSpace(request.FullName))
+            return BadRequest(new { message = "Họ và tên là bắt buộc" });
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+            return BadRequest(new { message = "Email là bắt buộc" });
+
         // Kiểm tra email đã tồn tại chưa (nếu có email và khác email hiện tại)
         if (!string.IsNullOrWhiteSpace(request.Email) && 
             request.Email != user.Email &&
@@ -159,27 +165,14 @@ public class UserController : ControllerBase
             }
         }
 
-        // Cập nhật thông tin
-        if (request.FullName != null)
-            user.FullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
-
-        if (request.Email != null)
-            user.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLower();
-
-        if (request.Position != null)
-            user.Position = string.IsNullOrWhiteSpace(request.Position) ? null : request.Position.Trim();
-
-        if (request.AcademicRank != null)
-            user.AcademicRank = string.IsNullOrWhiteSpace(request.AcademicRank) ? null : request.AcademicRank.Trim();
-
-        if (request.AcademicDegree != null)
-            user.AcademicDegree = string.IsNullOrWhiteSpace(request.AcademicDegree) ? null : request.AcademicDegree.Trim();
-
-        if (request.OrganizationUnitId != null)
-            user.OrganizationUnitId = request.OrganizationUnitId;
-
-        if (request.FaceTemplate != null)
-            user.FaceTemplate = string.IsNullOrWhiteSpace(request.FaceTemplate) ? null : request.FaceTemplate.Trim();
+        // Cập nhật toàn bộ trường có trong body (client gửi đủ key, null = xóa / để trống).
+        user.FullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
+        user.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
+        user.Position = string.IsNullOrWhiteSpace(request.Position) ? null : request.Position.Trim();
+        user.AcademicRank = string.IsNullOrWhiteSpace(request.AcademicRank) ? null : request.AcademicRank.Trim();
+        user.AcademicDegree = string.IsNullOrWhiteSpace(request.AcademicDegree) ? null : request.AcademicDegree.Trim();
+        user.OrganizationUnitId = request.OrganizationUnitId;
+        user.FaceTemplate = string.IsNullOrWhiteSpace(request.FaceTemplate) ? null : request.FaceTemplate.Trim();
 
         await _db.SaveChangesAsync();
 
