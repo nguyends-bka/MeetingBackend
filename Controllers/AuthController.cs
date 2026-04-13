@@ -16,11 +16,13 @@ public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly JwtTokenService _jwt;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(AppDbContext db, JwtTokenService jwt)
+    public AuthController(AppDbContext db, JwtTokenService jwt, ILogger<AuthController> logger)
     {
         _db = db;
         _jwt = jwt;
+        _logger = logger;
     }
 
     [HttpPost("register")]
@@ -138,12 +140,23 @@ public class AuthController : ControllerBase
         {
             if (candidate.FaceEmbedding == null) continue;
             var score = BestSimilarityFromStoredEmbeddings(candidate.FaceEmbedding, req.Embedding);
+            _logger.LogInformation(
+                "FaceLogin candidate={Username} score={Score:F4} threshold={Threshold:F2}",
+                candidate.Username,
+                score,
+                threshold);
             if (score > bestScore)
             {
                 bestScore = score;
                 bestUser = candidate;
             }
         }
+
+        _logger.LogInformation(
+            "FaceLogin best_score={BestScore:F4} threshold={Threshold:F2} matched_user={MatchedUser}",
+            bestScore,
+            threshold,
+            bestUser?.Username ?? "<none>");
 
         if (bestUser == null || bestScore < threshold)
             return Unauthorized(new { message = "Face không khớp" });
