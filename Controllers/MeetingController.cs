@@ -100,6 +100,17 @@ public class MeetingController : ControllerBase
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
                      ?? User.FindFirstValue(ClaimTypes.Name);
 
+        var startAtUtc = request.StartAt.HasValue
+            ? FromUnixMs(request.StartAt.Value)
+            : DateTime.UtcNow;
+        DateTime? estimatedEndUtc = request.EstimatedEndAt.HasValue
+            ? FromUnixMs(request.EstimatedEndAt.Value)
+            : null;
+        if (estimatedEndUtc.HasValue && estimatedEndUtc.Value <= startAtUtc)
+        {
+            return BadRequest("Thời gian kết thúc dự kiến phải sau thời gian bắt đầu");
+        }
+
         // Tạo meeting code duy nhất
         var meetingCode = await _codeService.GenerateUniqueCodeAsync();
         
@@ -117,7 +128,10 @@ public class MeetingController : ControllerBase
             RoomName = Guid.NewGuid().ToString(),
             MeetingCode = meetingCode,
             Passcode = passcode,
-            CreatedAt = DateTime.UtcNow
+            // Hệ thống hiện dùng CreatedAt làm thời gian bắt đầu hiển thị theo lịch.
+            CreatedAt = startAtUtc,
+            // Tái sử dụng StartedAt để lưu thời gian kết thúc dự kiến (đang dùng nhất quán với API update).
+            StartedAt = estimatedEndUtc
         };
 
         _db.Meetings.Add(meeting);
