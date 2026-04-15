@@ -7,6 +7,10 @@ using MeetingBackend.DTOs.Auth;
 using MeetingBackend.Entities;
 using MeetingBackend.Mappers;
 using MeetingBackend.Services;
+using System;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace MeetingBackend.Controllers;
 
@@ -123,6 +127,8 @@ public class AuthController : ControllerBase
         // - Frontend gửi embedding về backend để so khớp với FaceEmbedding đã lưu trong DB.
         if (req.Embedding == null || req.Embedding.Length == 0)
             return BadRequest(new { message = "Embedding không hợp lệ" });
+        if (!TryConvertToByteArray(req.Embedding, out var probeBytes, out var errorMessage))
+            return BadRequest(new { message = errorMessage });
 
         // Cosine similarity (giá trị -1..1). Ngưỡng cần tinh chỉnh theo model thiết bị.
         const float threshold = 0.85f;
@@ -139,7 +145,7 @@ public class AuthController : ControllerBase
         foreach (var candidate in candidates)
         {
             if (candidate.FaceEmbedding == null) continue;
-            var score = BestSimilarityFromStoredEmbeddings(candidate.FaceEmbedding, req.Embedding);
+            var score = await BestSimilarityFromStoredEmbeddings(candidate.FaceEmbedding, probeBytes);
             _logger.LogInformation(
                 "FaceLogin candidate={Username} score={Score:F4} threshold={Threshold:F2}",
                 candidate.Username,
@@ -172,39 +178,123 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
 
-    private static float CosineSimilarity(float[] a, float[] b)
+    private static bool TryConvertToByteArray(int[] source, out byte[] bytes, out string errorMessage)
     {
-        double dot = 0;
-        double normA = 0;
-        double normB = 0;
+        bytes = Array.Empty<byte>();
+        errorMessage = string.Empty;
 
-        for (int i = 0; i < a.Length; i++)
+        if (source.Length == 0)
         {
-            dot += (double)a[i] * b[i];
-            normA += (double)a[i] * a[i];
-            normB += (double)b[i] * b[i];
+            errorMessage = "Embedding không hợp lệ";
+            return false;
         }
 
-        if (normA <= 0 || normB <= 0) return 0;
-        return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB)));
+        bytes = new byte[source.Length];
+        for (var i = 0; i < source.Length; i++)
+        {
+            if (source[i] < -128 || source[i] > 127)
+            {
+                errorMessage = "Mỗi phần tử embedding phải nằm trong khoảng -128..127";
+                return false;
+            }
+
+            bytes[i] = unchecked((byte)(sbyte)source[i]);
+        }
+
+        return true;
+    }
+    // private static float CosineSimilarity(float[] a, float[] b)
+    // {
+    //     double dot = 0;
+    //     double normA = 0;
+    //     double normB = 0;
+
+    //     for (int i = 0; i < a.Length; i++)
+    //     {
+    //         dot += (double)a[i] * b[i];
+    //         normA += (double)a[i] * a[i];
+    //         normB += (double)b[i] * b[i];
+    //     }
+
+    //     if (normA <= 0 || normB <= 0) return 0;
+    //     return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB)));
+    // }
+
+    public static async Task<float> CosineSimilarityAsync(byte[] template1, byte[] template2)
+    {
+        const string url = "http://54.169.201.65:8080/match";
+
+        try
+        {
+            using var client = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(20)
+            };
+
+            var payload = new
+            {
+                template1 = template1.Select(b => (int)(unchecked((sbyte)b))).ToArray(),
+                template2 = template2.Select(b => (int)(unchecked((sbyte)b))).ToArray()
+            };
+
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+
+            using var content = new StringContent(
+                json,
+                System.Text.Encoding.UTF8,
+                "application/json"
+            );
+
+            using var response = await client.PostAsync(url, content);
+            var responseText = await response.Content.ReadAsStringAsync();
+
+            Console.WriteLine(responseText);
+
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(responseText);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("success", out var successProp) &&
+                    successProp.ValueKind == System.Text.Json.JsonValueKind.True &&
+                    root.TryGetProperty("similarity", out var similarityProp) &&
+                    similarityProp.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                    similarityProp.TryGetSingle(out float similarity))
+                {
+                    return similarity;
+                }
+
+                return 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
-    private static float BestSimilarityFromStoredEmbeddings(float[,] stored, float[] probe)
+    private static async Task<float> BestSimilarityFromStoredEmbeddings(short[,] stored, byte[] probe)
     {
         if (probe.Length == 0 || stored.Length == 0) return 0;
         var rows = stored.GetLength(0);
         var cols = stored.GetLength(1);
         if (rows <= 0 || cols <= 0 || cols != probe.Length) return 0;
-
         var best = float.MinValue;
-        var segment = new float[cols];
+        var segment = new byte[cols];
         for (var r = 0; r < rows; r++)
         {
             for (var c = 0; c < cols; c++)
             {
-                segment[c] = stored[r, c];
+                var value = stored[r, c];
+                if (value < -128 || value > 127)
+                    return 0;
+                segment[c] = unchecked((byte)(sbyte)value);
             }
-            var score = CosineSimilarity(segment, probe);
+            var score = await CosineSimilarityAsync(segment, probe);
             if (score > best) best = score;
         }
         return best;

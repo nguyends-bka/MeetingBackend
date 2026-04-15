@@ -235,10 +235,10 @@ public class UserController : ControllerBase
 
     private static bool TryBuildMultiAngleEmbedding(
         RegisterFaceEmbeddingRequestDto request,
-        out float[,] mergedEmbedding,
+        out short[,] mergedEmbedding,
         out string errorMessage)
     {
-        mergedEmbedding = new float[0, 0];
+        mergedEmbedding = new short[0, 0];
         errorMessage = string.Empty;
 
         if (request.Straight == null || request.Right == null || request.Left == null || request.Up == null)
@@ -260,13 +260,27 @@ public class UserController : ControllerBase
             return false;
         }
 
-        mergedEmbedding = new float[4, dim];
+        mergedEmbedding = new short[4, dim];
         for (var i = 0; i < dim; i++)
         {
-            mergedEmbedding[0, i] = request.Straight[i];
-            mergedEmbedding[1, i] = request.Right[i];
-            mergedEmbedding[2, i] = request.Left[i];
-            mergedEmbedding[3, i] = request.Up[i];
+            var straight = request.Straight[i];
+            var right = request.Right[i];
+            var left = request.Left[i];
+            var up = request.Up[i];
+
+            if (straight < -128 || straight > 127 ||
+                right < -128 || right > 127 ||
+                left < -128 || left > 127 ||
+                up < -128 || up > 127)
+            {
+                errorMessage = "Mỗi phần tử embedding phải nằm trong khoảng -128..127";
+                return false;
+            }
+
+            mergedEmbedding[0, i] = (short)straight;
+            mergedEmbedding[1, i] = (short)right;
+            mergedEmbedding[2, i] = (short)left;
+            mergedEmbedding[3, i] = (short)up;
         }
         return true;
     }

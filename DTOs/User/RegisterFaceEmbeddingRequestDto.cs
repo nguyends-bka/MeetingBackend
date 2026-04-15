@@ -2,8 +2,8 @@ namespace MeetingBackend.DTOs.User;
 
 public class RegisterFaceEmbeddingRequestDto
 {
-    public float[]? Straight { get; set; }
-    public float[]? Right { get; set; }
-    public float[]? Left { get; set; }
-    public float[]? Up { get; set; }
+    public int[]? Straight { get; set; }
+    public int[]? Right { get; set; }
+    public int[]? Left { get; set; }
+    public int[]? Up { get; set; }
 }

@@ -33,7 +33,8 @@ namespace MeetingBackend.Entities
 
         // Khuôn mặt dạng embedding nhiều góc: [straight, right, left, up].
         // Lưu thành mảng 2 chiều trong PostgreSQL (real[][]) để dễ quan sát theo từng góc.
-        public float[,]? FaceEmbedding { get; set; }
+        // public float[,]? FaceEmbedding { get; set; }
+        public short[,]? FaceEmbedding { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
