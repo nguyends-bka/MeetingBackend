@@ -8,5 +8,5 @@ public class UpdateProfileRequestDto
     public string? AcademicRank { get; set; } // GS | PGS
     public string? AcademicDegree { get; set; } // TS | ThS | CN | KS
     public Guid? OrganizationUnitId { get; set; }
-    public string? FaceTemplate { get; set; } // <= 512 bytes
+    public string? Avatar { get; set; }
 }

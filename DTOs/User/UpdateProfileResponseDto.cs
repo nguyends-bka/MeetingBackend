@@ -18,6 +18,6 @@ public class UserDto
     public string? AcademicDegree { get; set; }
     public Guid? OrganizationUnitId { get; set; }
     public string? OrganizationUnitName { get; set; }
-    public string? FaceTemplate { get; set; }
+    public string? Avatar { get; set; }
     public bool HasFaceEmbedding { get; set; }
 }

@@ -57,7 +57,7 @@ public class AdminController : ControllerBase
             OrganizationUnitName = u.OrganizationUnitId.HasValue && unitMap.TryGetValue(u.OrganizationUnitId.Value, out var unitName)
                 ? unitName
                 : null,
-            HasFaceTemplate = !string.IsNullOrWhiteSpace(u.FaceTemplate),
+            HasAvatar = !string.IsNullOrWhiteSpace(u.Avatar),
             CreatedAt = u.CreatedAt
         }).ToList();
 

@@ -12,6 +12,6 @@ public class AdminUserDto
     public string? AcademicDegree { get; set; }
     public Guid? OrganizationUnitId { get; set; }
     public string? OrganizationUnitName { get; set; }
-    public bool HasFaceTemplate { get; set; }
+    public bool HasAvatar { get; set; }
     public DateTime CreatedAt { get; set; }
 }

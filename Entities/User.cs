@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 using MeetingBackend.Constants;
 
 namespace MeetingBackend.Entities
@@ -29,7 +30,8 @@ namespace MeetingBackend.Entities
 
         public Guid? OrganizationUnitId { get; set; }
 
-        public string? FaceTemplate { get; set; } // Chuỗi template khuôn mặt (<= 512 byte)
+        [Column("FaceTemplate")]
+        public string? Avatar { get; set; } // Ảnh đại diện dạng Base64
 
         // Khuôn mặt dạng embedding nhiều góc: [straight, right, left, up].
         // Lưu thành mảng 2 chiều trong PostgreSQL (real[][]) để dễ quan sát theo từng góc.

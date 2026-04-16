@@ -10,5 +10,5 @@ public class RegisterRequestDto
     public string? AcademicRank { get; set; }
     public string? AcademicDegree { get; set; }
     public Guid? OrganizationUnitId { get; set; }
-    public string? FaceTemplate { get; set; }
+    public string? Avatar { get; set; }
 }

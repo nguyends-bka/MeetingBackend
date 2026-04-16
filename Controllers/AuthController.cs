@@ -47,15 +47,15 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Học vị chỉ nhận TS, ThS, CN hoặc KS" });
         }
 
-        if (!string.IsNullOrWhiteSpace(req.FaceTemplate))
+        if (!string.IsNullOrWhiteSpace(req.Avatar))
         {
             try
             {
-                _ = Convert.FromBase64String(req.FaceTemplate);
+                _ = Convert.FromBase64String(req.Avatar);
             }
             catch (FormatException)
             {
-                return BadRequest(new { message = "Face template phải là chuỗi Base64 hợp lệ" });
+                return BadRequest(new { message = "Avatar phải là chuỗi Base64 hợp lệ" });
             }
         }
 
@@ -82,7 +82,7 @@ public class AuthController : ControllerBase
             AcademicRank = string.IsNullOrWhiteSpace(req.AcademicRank) ? null : req.AcademicRank.Trim(),
             AcademicDegree = string.IsNullOrWhiteSpace(req.AcademicDegree) ? null : req.AcademicDegree.Trim(),
             OrganizationUnitId = req.OrganizationUnitId,
-            FaceTemplate = string.IsNullOrWhiteSpace(req.FaceTemplate) ? null : req.FaceTemplate.Trim(),
+            Avatar = string.IsNullOrWhiteSpace(req.Avatar) ? null : req.Avatar.Trim(),
         };
 
         _db.Users.Add(user);

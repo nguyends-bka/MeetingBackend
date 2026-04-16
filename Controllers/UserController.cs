@@ -142,15 +142,15 @@ public class UserController : ControllerBase
             return BadRequest(new { message = "Học vị chỉ nhận TS, ThS, CN hoặc KS" });
         }
 
-        if (!string.IsNullOrWhiteSpace(request.FaceTemplate))
+        if (!string.IsNullOrWhiteSpace(request.Avatar))
         {
             try
             {
-                _ = Convert.FromBase64String(request.FaceTemplate);
+                _ = Convert.FromBase64String(request.Avatar);
             }
             catch (FormatException)
             {
-                return BadRequest(new { message = "Face template phải là chuỗi Base64 hợp lệ" });
+                return BadRequest(new { message = "Avatar phải là chuỗi Base64 hợp lệ" });
             }
         }
 
@@ -172,7 +172,7 @@ public class UserController : ControllerBase
         user.AcademicRank = string.IsNullOrWhiteSpace(request.AcademicRank) ? null : request.AcademicRank.Trim();
         user.AcademicDegree = string.IsNullOrWhiteSpace(request.AcademicDegree) ? null : request.AcademicDegree.Trim();
         user.OrganizationUnitId = request.OrganizationUnitId;
-        user.FaceTemplate = string.IsNullOrWhiteSpace(request.FaceTemplate) ? null : request.FaceTemplate.Trim();
+        user.Avatar = string.IsNullOrWhiteSpace(request.Avatar) ? null : request.Avatar.Trim();
 
         await _db.SaveChangesAsync();
 

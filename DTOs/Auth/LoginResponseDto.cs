@@ -17,7 +17,7 @@ public class AuthUserDto
     public string? AcademicRank { get; set; }
     public string? AcademicDegree { get; set; }
     public Guid? OrganizationUnitId { get; set; }
-    public string? FaceTemplate { get; set; }
+    public string? Avatar { get; set; }
 
     /// <summary>Đã có vector embedding khuôn mặt trong DB (dùng cho đăng nhập Face).</summary>
     public bool HasFaceEmbedding { get; set; }
