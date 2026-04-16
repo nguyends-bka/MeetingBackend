@@ -8,6 +8,7 @@ using MeetingBackend.Entities;
 using MeetingBackend.Mappers;
 using MeetingBackend.Policies;
 using MeetingBackend.Services;
+using MeetingBackend.Services.Meeting;
 
 namespace MeetingBackend.Controllers;
 
@@ -17,77 +18,34 @@ namespace MeetingBackend.Controllers;
 public class MeetingController : ControllerBase
 {
     private readonly AppDbContext _db;
-    private readonly LiveKitTokenService _liveKit;
-    private readonly IConfiguration _config;
-    private readonly MeetingCodeService _codeService;
+    private readonly IMeetingApplicationService _meetingApplicationService;
 
     public MeetingController(
         AppDbContext db,
-        LiveKitTokenService liveKit,
-        IConfiguration config,
-        MeetingCodeService codeService)
+        IMeetingApplicationService meetingApplicationService)
     {
         _db = db;
-        _liveKit = liveKit;
-        _config = config;
-        _codeService = codeService;
+        _meetingApplicationService = meetingApplicationService;
     }
 
-    private static DateTime FromUnixMs(long unixMs)
+    private CurrentUserContext CurrentUser() => new()
     {
-        return DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime;
-    }
+        UserId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                 ?? User.FindFirstValue(ClaimTypes.Name),
+        Username = User.FindFirstValue("username"),
+        Role = User.FindFirstValue(ClaimTypes.Role),
+    };
 
-    // Helper method để ghi lại lịch sử vào meeting
-    private async Task<MeetingParticipant> RecordJoinAsync(Guid meetingId, string userId, string username)
+    private IActionResult ToActionResult<T>(MeetingAppResult<T> result)
     {
-        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
-        if (meeting == null)
+        return result.Status switch
         {
-            throw new InvalidOperationException("Meeting not found");
-        }
-
-        // Nếu user đang có session active trong meeting này, không tạo thêm record mới
-        var existingActive = await _db.MeetingParticipants
-            .FirstOrDefaultAsync(p =>
-                p.MeetingId == meetingId &&
-                p.UserId == userId &&
-                p.LeftAt == null);
-
-        if (existingActive != null)
-        {
-            // Đồng bộ username (phòng trường hợp username thay đổi)
-            if (!string.Equals(existingActive.Username, username, StringComparison.Ordinal))
-            {
-                existingActive.Username = username;
-                await _db.SaveChangesAsync();
-            }
-            return existingActive;
-        }
-
-        if (meeting.EndedAt.HasValue)
-        {
-            // Meeting đã kết thúc, không cho join tiếp.
-            throw new UnauthorizedAccessException("Meeting has ended");
-        }
-
-        var participant = new MeetingParticipant
-        {
-            Id = Guid.NewGuid(),
-            MeetingId = meetingId,
-            UserId = userId,
-            Username = username,
-            JoinedAt = DateTime.UtcNow
+            MeetingAppStatus.Ok => Ok(result.Data),
+            MeetingAppStatus.BadRequest => BadRequest(result.Message),
+            MeetingAppStatus.Unauthorized => Unauthorized(result.Message),
+            MeetingAppStatus.NotFound => NotFound(result.Message),
+            _ => BadRequest("Yeu cau khong hop le"),
         };
-        _db.MeetingParticipants.Add(participant);
-
-        if (!meeting.StartedAt.HasValue)
-        {
-            meeting.StartedAt = participant.JoinedAt;
-        }
-
-        await _db.SaveChangesAsync();
-        return participant;
     }
 
     // ==========================
@@ -97,55 +55,8 @@ public class MeetingController : ControllerBase
     [Authorize(Policy = AuthorizationPolicies.UserOrAdmin)]
     public async Task<IActionResult> Create(CreateMeetingRequestDto request)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-
-        var startAtUtc = request.StartAt.HasValue
-            ? FromUnixMs(request.StartAt.Value)
-            : DateTime.UtcNow;
-        DateTime? estimatedEndUtc = request.EstimatedEndAt.HasValue
-            ? FromUnixMs(request.EstimatedEndAt.Value)
-            : null;
-        if (estimatedEndUtc.HasValue && estimatedEndUtc.Value <= startAtUtc)
-        {
-            return BadRequest("Thời gian kết thúc dự kiến phải sau thời gian bắt đầu");
-        }
-
-        // Tạo meeting code duy nhất
-        var meetingCode = await _codeService.GenerateUniqueCodeAsync();
-        
-        // Tạo passcode (tự động nếu không có)
-        var passcode = !string.IsNullOrEmpty(request.Passcode) 
-            ? request.Passcode 
-            : _codeService.GeneratePasscode(6);
-
-        var meeting = new Meeting
-        {
-            Id = Guid.NewGuid(),
-            Title = request.Title,
-            HostName = request.HostName,
-            HostIdentity = userId!,
-            RoomName = Guid.NewGuid().ToString(),
-            MeetingCode = meetingCode,
-            Passcode = passcode,
-            // Hệ thống hiện dùng CreatedAt làm thời gian bắt đầu hiển thị theo lịch.
-            CreatedAt = startAtUtc,
-            // Tái sử dụng StartedAt để lưu thời gian kết thúc dự kiến (đang dùng nhất quán với API update).
-            StartedAt = estimatedEndUtc
-        };
-
-        _db.Meetings.Add(meeting);
-        await _db.SaveChangesAsync();
-
-        var response = new CreateMeetingResponseDto
-        {
-            MeetingId = meeting.Id,
-            MeetingCode = meeting.MeetingCode,
-            Passcode = meeting.Passcode,
-            RoomName = meeting.RoomName
-        };
-
-        return Ok(response);
+        var result = await _meetingApplicationService.CreateAsync(CurrentUser(), request, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -154,50 +65,8 @@ public class MeetingController : ControllerBase
     [HttpPost("join-by-link")]
     public async Task<IActionResult> JoinByLink([FromBody] JoinByLinkRequestDto req)
     {
-        if (req.MeetingId == Guid.Empty)
-            return BadRequest("Meeting ID is required");
-
-        var meeting = await _db.Meetings
-            .FirstOrDefaultAsync(m => m.Id == req.MeetingId);
-
-        if (meeting == null)
-            return NotFound("Meeting not found");
-
-        // 🔐 LẤY IDENTITY TỪ JWT (KHÔNG TIN CLIENT)
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-        var username = User.FindFirstValue("username") ?? "Unknown";
-
-        // Ghi lại lịch sử vào meeting
-        MeetingParticipant participant;
-        try
-        {
-            participant = await RecordJoinAsync(meeting.Id, userId!, username);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(ex.Message);
-        }
-
-        var token = _liveKit.CreateToken(
-            meeting.RoomName,
-            userId!,
-            username
-        );
-
-        var response = new JoinMeetingResponseDto
-        {
-            Token = token,
-            LiveKitUrl = _config["LiveKit:Url"]!,
-            RoomName = meeting.RoomName,
-            MeetingId = meeting.Id,
-            MeetingCode = meeting.MeetingCode,
-            ParticipantId = participant.Id,
-            HostIdentity = meeting.HostIdentity,
-            IsMeetingHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId!, username),
-        };
-
-        return Ok(response);
+        var result = await _meetingApplicationService.JoinByLinkAsync(CurrentUser(), req, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -206,64 +75,8 @@ public class MeetingController : ControllerBase
     [HttpPost("join")]
     public async Task<IActionResult> Join(JoinMeetingRequestDto req)
     {
-        Meeting? meeting = null;
-
-        // Tham gia bằng mã: chỉ cần meetingCode + passcode. Tham gia bằng ID: meetingId + passcode.
-        if (req.MeetingId.HasValue && req.MeetingId.Value != Guid.Empty)
-        {
-            meeting = await _db.Meetings
-                .FirstOrDefaultAsync(m => m.Id == req.MeetingId!.Value);
-        }
-        else if (!string.IsNullOrEmpty(req.MeetingCode))
-        {
-            meeting = await _db.Meetings
-                .FirstOrDefaultAsync(m => m.MeetingCode == req.MeetingCode.ToUpper().Trim());
-        }
-
-        if (meeting == null)
-            return NotFound("Meeting not found");
-
-        // Kiểm tra passcode
-        if (string.IsNullOrEmpty(req.Passcode) || meeting.Passcode != req.Passcode)
-        {
-            return Unauthorized("Invalid passcode");
-        }
-
-        // 🔐 LẤY IDENTITY TỪ JWT (KHÔNG TIN CLIENT)
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-        var username = User.FindFirstValue("username") ?? "Unknown";
-
-        // Ghi lại lịch sử vào meeting
-        MeetingParticipant participant;
-        try
-        {
-            participant = await RecordJoinAsync(meeting.Id, userId!, username);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(ex.Message);
-        }
-
-        var token = _liveKit.CreateToken(
-            meeting.RoomName,
-            userId!,
-            username
-        );
-
-        var response = new JoinMeetingResponseDto
-        {
-            Token = token,
-            LiveKitUrl = _config["LiveKit:Url"]!,
-            RoomName = meeting.RoomName,
-            MeetingId = meeting.Id,
-            MeetingCode = meeting.MeetingCode,
-            ParticipantId = participant.Id,
-            HostIdentity = meeting.HostIdentity,
-            IsMeetingHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId!, username),
-        };
-
-        return Ok(response);
+        var result = await _meetingApplicationService.JoinAsync(CurrentUser(), req, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -272,55 +85,8 @@ public class MeetingController : ControllerBase
     [HttpPost("join-by-code")]
     public async Task<IActionResult> JoinByCode([FromBody] JoinMeetingRequestDto req)
     {
-        if (string.IsNullOrEmpty(req.MeetingCode))
-            return BadRequest("Meeting code is required");
-
-        var meeting = await _db.Meetings
-            .FirstOrDefaultAsync(m => m.MeetingCode == req.MeetingCode.ToUpper().Trim());
-
-        if (meeting == null)
-            return NotFound("Meeting not found");
-
-        // Kiểm tra passcode
-        if (string.IsNullOrEmpty(req.Passcode) || meeting.Passcode != req.Passcode)
-        {
-            return Unauthorized("Invalid passcode");
-        }
-
-        // 🔐 LẤY IDENTITY TỪ JWT (KHÔNG TIN CLIENT)
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-        var username = User.FindFirstValue("username") ?? "Unknown";
-
-        // Ghi lại lịch sử vào meeting
-        MeetingParticipant participant;
-        try
-        {
-            participant = await RecordJoinAsync(meeting.Id, userId!, username);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            return Unauthorized(ex.Message);
-        }
-
-        var token = _liveKit.CreateToken(
-            meeting.RoomName,
-            userId!,
-            username
-        );
-
-        return Ok(new
-        {
-            token,
-            liveKitUrl = _config["LiveKit:Url"],
-            roomName = meeting.RoomName,
-            meetingId = meeting.Id,
-            meetingCode = meeting.MeetingCode,
-            title = meeting.Title,
-            participantId = participant.Id,
-            hostIdentity = meeting.HostIdentity,
-            isMeetingHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId!, username),
-        });
+        var result = await _meetingApplicationService.JoinByCodeAsync(CurrentUser(), req, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -331,68 +97,8 @@ public class MeetingController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetMeetings()
     {
-        // Lấy userId và role từ JWT token
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-        var userRole = User.FindFirstValue(ClaimTypes.Role);
-        var username = User.FindFirstValue("username") ?? string.Empty;
-
-        if (string.IsNullOrEmpty(userId))
-        {
-            return Unauthorized("User identity not found");
-        }
-
-        IQueryable<Meeting> query = _db.Meetings;
-
-        HashSet<Guid> coHostMeetingIdSet = new();
-        if (userRole != "Admin")
-        {
-            var coIds = await _db.MeetingCoHosts
-                .AsNoTracking()
-                .Where(c => c.HostUserId == userId)
-                .Select(c => c.MeetingId)
-                .ToListAsync();
-            coHostMeetingIdSet = coIds.ToHashSet();
-            query = query.Where(m => m.HostIdentity == userId || coHostMeetingIdSet.Contains(m.Id));
-        }
-
-        var meetings = await query
-            .OrderByDescending(m => m.CreatedAt)
-            .ToListAsync();
-        var meetingIds = meetings.Select(m => m.Id).ToList();
-
-        var activeCounts = await _db.MeetingParticipants
-            .Where(p => meetingIds.Contains(p.MeetingId) && p.LeftAt == null)
-            .GroupBy(p => p.MeetingId)
-            .Select(g => new { MeetingId = g.Key, Count = g.Count() })
-            .ToDictionaryAsync(x => x.MeetingId, x => x.Count);
-
-        var managerMeetingIds = string.IsNullOrWhiteSpace(username)
-            ? new HashSet<Guid>()
-            : (await _db.MeetingPollManagers
-                .AsNoTracking()
-                .Where(x => x.Username.ToLower() == username.Trim().ToLower())
-                .Select(x => x.MeetingId)
-                .ToListAsync())
-              .ToHashSet();
-
-        var normalizedUserId = userId.Trim();
-        var normalizedUsername = username.Trim();
-        var response = meetings.Select(m =>
-        {
-            var isPrimaryHost = string.Equals(m.HostIdentity, normalizedUserId, StringComparison.OrdinalIgnoreCase)
-                || (!string.IsNullOrWhiteSpace(normalizedUsername)
-                    && string.Equals(m.HostIdentity, normalizedUsername, StringComparison.OrdinalIgnoreCase));
-            var isCoHost = coHostMeetingIdSet.Contains(m.Id);
-            var isMeetingHost = isPrimaryHost || isCoHost;
-            var canManagePoll = isMeetingHost || managerMeetingIds.Contains(m.Id);
-            var dto = MeetingMapper.ToMeetingListItemDto(m);
-            dto.IsMeetingHost = isMeetingHost;
-            dto.CanManagePoll = canManagePoll;
-            dto.ActiveParticipantCount = activeCounts.TryGetValue(m.Id, out var c) ? c : 0;
-            return dto;
-        }).ToList();
-        return Ok(response);
+        var result = await _meetingApplicationService.GetMeetingsAsync(CurrentUser(), HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -402,58 +108,8 @@ public class MeetingController : ControllerBase
     [Authorize]
     public async Task<IActionResult> UpdateMeeting(Guid meetingId, [FromBody] UpdateMeetingRequestDto request)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-        var username = User.FindFirstValue("username") ?? string.Empty;
-
-        if (string.IsNullOrWhiteSpace(request.Title))
-        {
-            return BadRequest("Tiêu đề cuộc họp không được để trống");
-        }
-
-        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
-        if (meeting == null) return NotFound("Meeting not found");
-
-        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId ?? string.Empty, username))
-        {
-            return Unauthorized("Only meeting host can update this meeting");
-        }
-
-        if (meeting.EndedAt.HasValue)
-        {
-            return BadRequest("Cuộc họp đã kết thúc, không thể chỉnh sửa");
-        }
-
-        var activeCount = await _db.MeetingParticipants
-            .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
-            .CountAsync();
-        if (activeCount > 0)
-        {
-            return BadRequest("Cuộc họp đang diễn ra, không thể chỉnh sửa");
-        }
-
-        var startAtUtc = FromUnixMs(request.StartAt);
-        DateTime? estimatedEndUtc = request.EstimatedEndAt.HasValue
-            ? FromUnixMs(request.EstimatedEndAt.Value)
-            : null;
-        if (estimatedEndUtc.HasValue && estimatedEndUtc.Value <= startAtUtc)
-        {
-            return BadRequest("Thời gian kết thúc dự kiến phải sau thời gian bắt đầu");
-        }
-
-        meeting.Title = request.Title.Trim();
-        // Hệ thống hiện dùng CreatedAt làm thời gian bắt đầu hiển thị.
-        meeting.CreatedAt = startAtUtc;
-        // Tái sử dụng StartedAt để lưu thời gian kết thúc dự kiến (không ảnh hưởng trạng thái cuộc họp hiện tại).
-        meeting.StartedAt = estimatedEndUtc;
-
-        await _db.SaveChangesAsync();
-
-        var dto = MeetingMapper.ToMeetingListItemDto(meeting);
-        dto.IsMeetingHost = true;
-        dto.CanManagePoll = true;
-        dto.ActiveParticipantCount = 0;
-        return Ok(dto);
+        var result = await _meetingApplicationService.UpdateMeetingAsync(CurrentUser(), meetingId, request, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -463,53 +119,8 @@ public class MeetingController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Leave([FromBody] LeaveMeetingRequestDto req)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-
-        // Ưu tiên dùng MeetingId để đóng TẤT CẢ session active trong meeting
-        var meetingId = req.MeetingId ?? Guid.Empty;
-
-        // Fallback: nếu client không gửi MeetingId, thử suy ra từ ParticipantId
-        if (meetingId == Guid.Empty && req.ParticipantId.HasValue)
-        {
-            meetingId = await _db.MeetingParticipants
-                .Where(p => p.Id == req.ParticipantId.Value && p.UserId == userId)
-                .Select(p => p.MeetingId)
-                .FirstOrDefaultAsync();
-        }
-
-        if (meetingId == Guid.Empty)
-        {
-            return BadRequest("MeetingId is required");
-        }
-
-        var now = DateTime.UtcNow;
-
-        // Đóng tất cả session active của user trong meeting này (khắc phục duplicate 'Đang tham gia')
-        var actives = await _db.MeetingParticipants
-            .Where(p =>
-                p.MeetingId == meetingId &&
-                p.UserId == userId &&
-                p.LeftAt == null)
-            .ToListAsync();
-
-        foreach (var p in actives)
-        {
-            p.LeftAt = now;
-        }
-
-        if (actives.Count > 0)
-        {
-            await _db.SaveChangesAsync();
-        }
-
-        var response = new LeaveMeetingResponseDto
-        {
-            Message = "Left meeting successfully",
-            UpdatedCount = actives.Count
-        };
-
-        return Ok(response);
+        var result = await _meetingApplicationService.LeaveAsync(CurrentUser(), req, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================
@@ -519,33 +130,8 @@ public class MeetingController : ControllerBase
     [Authorize]
     public async Task<IActionResult> EndMeeting(Guid meetingId)
     {
-        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
-                     ?? User.FindFirstValue(ClaimTypes.Name);
-        var username = User.FindFirstValue("username") ?? string.Empty;
-
-        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
-        if (meeting == null) return NotFound("Meeting not found");
-
-        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId ?? string.Empty, username))
-        {
-            return Unauthorized("Only meeting host can end meeting");
-        }
-
-        var now = DateTime.UtcNow;
-        meeting.StartedAt ??= now;
-        meeting.EndedAt = now;
-
-        // đóng tất cả session đang active trong meeting
-        var actives = await _db.MeetingParticipants
-            .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
-            .ToListAsync();
-        foreach (var p in actives)
-        {
-            p.LeftAt = now;
-        }
-
-        await _db.SaveChangesAsync();
-        return Ok(new { message = "Meeting ended", endedAt = meeting.EndedAt });
+        var result = await _meetingApplicationService.EndMeetingAsync(CurrentUser(), meetingId, HttpContext.RequestAborted);
+        return ToActionResult(result);
     }
 
     // ==========================

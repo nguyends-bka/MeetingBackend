@@ -1,13 +1,14 @@
 using MeetingBackend.Data;
 using MeetingBackend.Entities;
 using Microsoft.EntityFrameworkCore;
+using MeetingEntity = MeetingBackend.Entities.Meeting;
 
 namespace MeetingBackend.Services;
 
 /// <summary>Chủ trì gốc (Meeting.HostIdentity) hoặc đồng chủ trì (MeetingCoHosts).</summary>
 public static class MeetingHostAuth
 {
-    public static bool IsPrimaryHost(Meeting meeting, string userId, string? username)
+    public static bool IsPrimaryHost(MeetingEntity meeting, string userId, string? username)
     {
         var h = meeting.HostIdentity?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(h)) return false;
@@ -26,7 +27,7 @@ public static class MeetingHostAuth
             .AnyAsync(c => c.MeetingId == meetingId && c.HostUserId == uid, ct);
     }
 
-    public static async Task<bool> IsAnyHostAsync(AppDbContext db, Meeting meeting, string userId, string? username, CancellationToken ct = default)
+    public static async Task<bool> IsAnyHostAsync(AppDbContext db, MeetingEntity meeting, string userId, string? username, CancellationToken ct = default)
     {
         if (IsPrimaryHost(meeting, userId, username)) return true;
         return await IsCoHostAsync(db, meeting.Id, userId, ct);

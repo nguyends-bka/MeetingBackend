@@ -1,7 +1,9 @@
 using System.Text;
 using MeetingBackend.Data;
-using MeetingBackend.Models;
+using MeetingBackend.Options;
 using MeetingBackend.Services;
+using MeetingBackend.Services.Auth;
+using MeetingBackend.Services.Meeting;
 using MeetingBackend.Policies;
 using MeetingBackend.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -90,6 +92,8 @@ builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp,
     client.Timeout = TimeSpan.FromSeconds(timeout);
 });
 builder.Services.AddScoped<IFaceAuthService, FaceAuthService>();
+builder.Services.AddScoped<IAuthApplicationService, AuthApplicationService>();
+builder.Services.AddScoped<IMeetingApplicationService, MeetingApplicationService>();
 
 // =======================
 // Meeting Code Service

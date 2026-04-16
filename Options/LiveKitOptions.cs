@@ -1,4 +1,4 @@
-﻿namespace MeetingBackend.Models;
+namespace MeetingBackend.Options;
 
 public class LiveKitOptions
 {

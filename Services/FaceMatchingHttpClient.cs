@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using MeetingBackend.Models;
+using MeetingBackend.Options;
 using Microsoft.Extensions.Options;
 
 namespace MeetingBackend.Services;

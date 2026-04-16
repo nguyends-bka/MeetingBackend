@@ -1,7 +1,7 @@
 using System.Text;
 using Jose;
 using Microsoft.Extensions.Options;
-using MeetingBackend.Models;
+using MeetingBackend.Options;
 
 namespace MeetingBackend.Services
 {
