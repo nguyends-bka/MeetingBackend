@@ -78,8 +78,18 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // =======================
 builder.Services.Configure<LiveKitOptions>(
     builder.Configuration.GetSection("LiveKit"));
+builder.Services.Configure<FaceMatchingOptions>(
+    builder.Configuration.GetSection("FaceMatching"));
 
 builder.Services.AddSingleton<LiveKitTokenService>();
+
+builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp, client) =>
+{
+    var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<FaceMatchingOptions>>().Value;
+    var timeout = Math.Max(1, options.TimeoutSeconds);
+    client.Timeout = TimeSpan.FromSeconds(timeout);
+});
+builder.Services.AddScoped<IFaceAuthService, FaceAuthService>();
 
 // =======================
 // Meeting Code Service
