@@ -11,6 +11,7 @@ public class MeetingDocumentDto
     public string UploaderUserId { get; set; } = string.Empty;
     public string UploaderName { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public bool IsShared { get; set; }
 
     // Endpoint để lấy file (client sẽ fetch blob với Authorization)
     public string FileEndpoint { get; set; } = string.Empty;

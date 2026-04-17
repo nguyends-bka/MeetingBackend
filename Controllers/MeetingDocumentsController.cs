@@ -43,6 +43,14 @@ public class MeetingDocumentsController : ControllerBase
             p.MeetingId == meetingId && p.UserId == userId);
     }
 
+    private async Task<bool> IsInviteeAsync(Guid meetingId, string username)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return false;
+        var normalized = username.Trim().ToLower();
+        return await _db.MeetingInvitees.AnyAsync(i =>
+            i.MeetingId == meetingId && i.Username.ToLower() == normalized);
+    }
+
     private Task<bool> IsHostAsync(Meeting meeting, string userId, string username) =>
         MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, string.IsNullOrWhiteSpace(username) ? null : username);
 
@@ -52,19 +60,34 @@ public class MeetingDocumentsController : ControllerBase
         return string.IsNullOrWhiteSpace(name) ? "upload.bin" : name;
     }
 
+    public sealed class UpdateDocumentVisibilityRequest
+    {
+        public bool IsShared { get; set; }
+    }
+
     [HttpGet("{meetingId}/documents")]
     public async Task<IActionResult> ListDocuments(Guid meetingId)
     {
         var userId = GetUserId();
         var username = GetUsername();
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
         var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return NotFound("Meeting not found");
 
-        var canView = await HasParticipantAsync(meetingId, userId) || await IsHostAsync(meeting, userId, username);
-        if (!canView) return Unauthorized("Only participants or host can view meeting documents");
+        var isAdmin = string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase);
+        var canView =
+            isAdmin
+            || await HasParticipantAsync(meetingId, userId)
+            || await IsHostAsync(meeting, userId, username)
+            || await IsInviteeAsync(meetingId, username);
+        if (!canView) return Unauthorized("Only meeting members can view meeting documents");
+
+        var isHostOrCoHost = await IsHostAsync(meeting, userId, username);
 
         var docs = await _db.MeetingDocuments
-            .Where(d => d.MeetingId == meetingId)
+            .Where(d =>
+                d.MeetingId == meetingId
+                && (d.IsShared || isHostOrCoHost || d.UploaderUserId == userId))
             .OrderByDescending(d => d.CreatedAt)
             .Select(d => new MeetingDocumentDto
             {
@@ -76,6 +99,7 @@ public class MeetingDocumentsController : ControllerBase
                 UploaderUserId = d.UploaderUserId,
                 UploaderName = d.UploaderName,
                 CreatedAt = d.CreatedAt,
+                IsShared = d.IsShared,
                 FileEndpoint = $"/api/meeting/{meetingId}/documents/{d.Id}/file"
             })
             .ToListAsync();
@@ -131,6 +155,7 @@ public class MeetingDocumentsController : ControllerBase
             UploaderUserId = userId,
             UploaderName = uploaderName,
             CreatedAt = DateTime.UtcNow,
+            IsShared = true,
             StoragePath = storagePath,
         };
 
@@ -147,6 +172,44 @@ public class MeetingDocumentsController : ControllerBase
             UploaderUserId = doc.UploaderUserId,
             UploaderName = doc.UploaderName,
             CreatedAt = doc.CreatedAt,
+            IsShared = doc.IsShared,
+            FileEndpoint = $"/api/meeting/{meetingId}/documents/{doc.Id}/file"
+        });
+    }
+
+    [HttpPatch("{meetingId}/documents/{documentId}/visibility")]
+    public async Task<IActionResult> UpdateDocumentVisibility(
+        Guid meetingId,
+        Guid documentId,
+        [FromBody] UpdateDocumentVisibilityRequest request)
+    {
+        var userId = GetUserId();
+        var username = GetUsername();
+
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null) return NotFound("Meeting not found");
+
+        var isHost = await IsHostAsync(meeting, userId, username);
+        if (!isHost) return Unauthorized("Only host can change document visibility");
+
+        var doc = await _db.MeetingDocuments.FirstOrDefaultAsync(d =>
+            d.MeetingId == meetingId && d.Id == documentId);
+        if (doc == null) return NotFound("Document not found");
+
+        doc.IsShared = request.IsShared;
+        await _db.SaveChangesAsync();
+
+        return Ok(new MeetingDocumentDto
+        {
+            Id = doc.Id,
+            MeetingId = doc.MeetingId,
+            FileName = doc.FileName,
+            ContentType = doc.ContentType,
+            Size = doc.Size,
+            UploaderUserId = doc.UploaderUserId,
+            UploaderName = doc.UploaderName,
+            CreatedAt = doc.CreatedAt,
+            IsShared = doc.IsShared,
             FileEndpoint = $"/api/meeting/{meetingId}/documents/{doc.Id}/file"
         });
     }
@@ -156,16 +219,29 @@ public class MeetingDocumentsController : ControllerBase
     {
         var userId = GetUserId();
         var username = GetUsername();
+        var userRole = User.FindFirstValue(ClaimTypes.Role);
         var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null) return NotFound("Meeting not found");
 
-        var canView = await HasParticipantAsync(meetingId, userId) || await IsHostAsync(meeting, userId, username);
-        if (!canView) return Unauthorized("Only participants or host can download documents");
+        var isAdmin = string.Equals(userRole, "Admin", StringComparison.OrdinalIgnoreCase);
+        var canView =
+            isAdmin
+            || await HasParticipantAsync(meetingId, userId)
+            || await IsHostAsync(meeting, userId, username)
+            || await IsInviteeAsync(meetingId, username);
+        if (!canView) return Unauthorized("Only meeting members can download documents");
+
+        var isHostOrCoHost = await IsHostAsync(meeting, userId, username);
 
         var doc = await _db.MeetingDocuments.FirstOrDefaultAsync(d =>
             d.MeetingId == meetingId && d.Id == documentId);
 
         if (doc == null) return NotFound("Document not found");
+
+        if (!doc.IsShared && !(isHostOrCoHost || doc.UploaderUserId == userId))
+        {
+            return Forbid("Document is hidden for non-related participants");
+        }
 
         if (string.IsNullOrWhiteSpace(doc.StoragePath) || !System.IO.File.Exists(doc.StoragePath))
         {

@@ -20,6 +20,12 @@ public class MeetingDocument
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>
+    /// True: mọi người tham gia cuộc họp đều thấy.
+    /// False: chỉ host/co-host/uploader thấy.
+    /// </summary>
+    public bool IsShared { get; set; } = true;
+
     // Đường dẫn file trên server (absolute hoặc relative để map ra file)
     public string StoragePath { get; set; } = string.Empty;
 
