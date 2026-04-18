@@ -80,10 +80,13 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // =======================
 builder.Services.Configure<LiveKitOptions>(
     builder.Configuration.GetSection("LiveKit"));
+builder.Services.Configure<RecordingStorageOptions>(
+    builder.Configuration.GetSection("RecordingStorage"));
 builder.Services.Configure<FaceMatchingOptions>(
     builder.Configuration.GetSection("FaceMatching"));
 
 builder.Services.AddSingleton<LiveKitTokenService>();
+builder.Services.AddHttpClient<LiveKitEgressService>();
 
 builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp, client) =>
 {

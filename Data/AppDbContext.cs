@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<MeetingChatMessage> MeetingChatMessages => Set<MeetingChatMessage>();
     public DbSet<MeetingTranscriptEntry> MeetingTranscriptEntries => Set<MeetingTranscriptEntry>();
     public DbSet<MeetingDocument> MeetingDocuments => Set<MeetingDocument>();
+    public DbSet<MeetingRecording> MeetingRecordings => Set<MeetingRecording>();
     public DbSet<OrganizationUnit> OrganizationUnits => Set<OrganizationUnit>();
     public DbSet<MeetingInvitee> MeetingInvitees => Set<MeetingInvitee>();
     public DbSet<MeetingCoHost> MeetingCoHosts => Set<MeetingCoHost>();
@@ -84,6 +85,16 @@ public class AppDbContext : DbContext
         {
             e.HasIndex(x => new { x.MeetingId, x.AtUtc });
             e.HasOne<Meeting>()
+                .WithMany()
+                .HasForeignKey(x => x.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingRecording>(e =>
+        {
+            e.HasIndex(x => x.MeetingId);
+            e.HasIndex(x => x.EgressId).IsUnique();
+            e.HasOne(x => x.Meeting)
                 .WithMany()
                 .HasForeignKey(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);

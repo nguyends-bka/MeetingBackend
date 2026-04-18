@@ -58,5 +58,67 @@ namespace MeetingBackend.Services
                 JwsAlgorithm.HS256
             );
         }
+
+        /// <summary>
+        /// Tạo token cho backend gọi Egress API (start/stop recording).
+        /// </summary>
+        public string CreateEgressToken(string identity = "backend-egress")
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            var payload = new Dictionary<string, object>
+            {
+                { "iss", _options.ApiKey },
+                { "sub", identity },
+                { "nbf", now },
+                { "exp", now + 3600 },
+                {
+                    "video", new
+                    {
+                        roomRecord = true,
+                        roomAdmin = true,
+                        roomList = true,
+                        roomCreate = true,
+                    }
+                }
+            };
+
+            return JWT.Encode(
+                payload,
+                Encoding.UTF8.GetBytes(_options.ApiSecret),
+                JwsAlgorithm.HS256
+            );
+        }
+
+        /// <summary>
+        /// Tạo token backend để gọi RoomService (ListParticipants/ListRooms...).
+        /// Token được scope theo room để quyền roomAdmin có hiệu lực.
+        /// </summary>
+        public string CreateRoomServiceToken(string room, string identity = "backend-roomservice")
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            var payload = new Dictionary<string, object>
+            {
+                { "iss", _options.ApiKey },
+                { "sub", identity },
+                { "nbf", now },
+                { "exp", now + 3600 },
+                {
+                    "video", new
+                    {
+                        roomAdmin = true,
+                        roomList = true,
+                        room = room,
+                    }
+                }
+            };
+
+            return JWT.Encode(
+                payload,
+                Encoding.UTF8.GetBytes(_options.ApiSecret),
+                JwsAlgorithm.HS256
+            );
+        }
     }
 }

@@ -101,11 +101,12 @@ public class MeetingApplicationService : IMeetingApplicationService
         }
 
         var token = _liveKit.CreateToken(meeting.RoomName, userId, username);
+        var liveKitUrl = NormalizeLiveKitUrl(_config["LiveKit:Url"]);
 
         var response = new JoinMeetingResponseDto
         {
             Token = token,
-            LiveKitUrl = _config["LiveKit:Url"]!,
+            LiveKitUrl = liveKitUrl,
             RoomName = meeting.RoomName,
             MeetingId = meeting.Id,
             MeetingCode = meeting.MeetingCode,
@@ -154,11 +155,12 @@ public class MeetingApplicationService : IMeetingApplicationService
         }
 
         var token = _liveKit.CreateToken(meeting.RoomName, userId, username);
+        var liveKitUrl = NormalizeLiveKitUrl(_config["LiveKit:Url"]);
 
         var response = new JoinMeetingResponseDto
         {
             Token = token,
-            LiveKitUrl = _config["LiveKit:Url"]!,
+            LiveKitUrl = liveKitUrl,
             RoomName = meeting.RoomName,
             MeetingId = meeting.Id,
             MeetingCode = meeting.MeetingCode,
@@ -200,11 +202,12 @@ public class MeetingApplicationService : IMeetingApplicationService
         }
 
         var token = _liveKit.CreateToken(meeting.RoomName, userId, username);
+        var liveKitUrl = NormalizeLiveKitUrl(_config["LiveKit:Url"]);
 
         return MeetingAppResult<object>.Ok(new
         {
             token,
-            liveKitUrl = _config["LiveKit:Url"],
+            liveKitUrl,
             roomName = meeting.RoomName,
             meetingId = meeting.Id,
             meetingCode = meeting.MeetingCode,
@@ -395,6 +398,41 @@ public class MeetingApplicationService : IMeetingApplicationService
     private static DateTime FromUnixMs(long unixMs)
     {
         return DateTimeOffset.FromUnixTimeMilliseconds(unixMs).UtcDateTime;
+    }
+
+    private static string NormalizeLiveKitUrl(string? rawUrl)
+    {
+        var value = rawUrl?.Trim();
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        static string StripRtcPath(string path)
+        {
+            var normalized = path.TrimEnd('/');
+            if (normalized.EndsWith("/rtc/v1", StringComparison.OrdinalIgnoreCase))
+                normalized = normalized[..^7];
+            else if (normalized.EndsWith("/rtc", StringComparison.OrdinalIgnoreCase))
+                normalized = normalized[..^4];
+
+            return string.IsNullOrWhiteSpace(normalized) ? "/" : normalized;
+        }
+
+        if (Uri.TryCreate(value, UriKind.Absolute, out var absoluteUri))
+        {
+            var builder = new UriBuilder(absoluteUri)
+            {
+                Path = StripRtcPath(absoluteUri.AbsolutePath),
+            };
+            return builder.Uri.ToString().TrimEnd('/');
+        }
+
+        value = value.TrimEnd('/');
+        if (value.EndsWith("/rtc/v1", StringComparison.OrdinalIgnoreCase))
+            value = value[..^7];
+        else if (value.EndsWith("/rtc", StringComparison.OrdinalIgnoreCase))
+            value = value[..^4];
+
+        return value;
     }
 
     private async Task<MeetingParticipant> RecordJoinAsync(Guid meetingId, string userId, string username, CancellationToken cancellationToken)
