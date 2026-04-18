@@ -232,6 +232,9 @@ _pkginfo.txt
 # Docker build artifacts (too large for Git)
 *.tar
 
+# Local deploy helper scripts (contains server/password defaults)
+build-deploy-backend.ps1
+
 # Others
 ClientBin/
 ~$*
