@@ -16,7 +16,6 @@ namespace MeetingBackend.Controllers;
 [Authorize]
 public class MeetingRecordingsController : ControllerBase
 {
-    private const int MinimumStopDelaySeconds = 30;
     private readonly AppDbContext _db;
     private readonly LiveKitEgressService _egress;
     private readonly RecordingStorageOptions _recordingStorageOptions;
@@ -295,10 +294,10 @@ public class MeetingRecordingsController : ControllerBase
 
         // Track pre-check is best-effort. If backend cannot query RoomService due to permission/network,
         // do not hard-block start recording.
-        if (canCheckTracks && !hasMediaTrack)
-        {
-            return BadRequest("Không có audio/video đang phát trong phòng. Vui lòng bật mic/camera hoặc chờ người tham gia khác phát media rồi thử ghi lại.");
-        }
+        // Do not hard-block recording when there is temporarily no active media.
+        // In real meetings, participants may turn camera/mic on after recording starts.
+        _ = canCheckTracks;
+        _ = hasMediaTrack;
 
         var fileName = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}.mp4";
         var outputFilePath = BuildStoredOutputPath(meetingId, fileName);
@@ -351,12 +350,6 @@ public class MeetingRecordingsController : ControllerBase
         if (string.IsNullOrWhiteSpace(recording.EgressId))
             return BadRequest("Recording does not have egress id");
 
-        var elapsedSeconds = (DateTime.UtcNow - recording.StartedAtUtc).TotalSeconds;
-        if (elapsedSeconds < MinimumStopDelaySeconds)
-        {
-            return BadRequest($"Recording is still initializing. Please wait at least {MinimumStopDelaySeconds} seconds before stopping.");
-        }
-
         var (ok, error) = await _egress.StopEgressAsync(recording.EgressId, HttpContext.RequestAborted);
         if (!ok)
         {
@@ -371,7 +364,7 @@ public class MeetingRecordingsController : ControllerBase
 
         // Wait briefly for file flush to mounted storage before final status.
         var hasFile = false;
-        for (var i = 0; i < 10; i++)
+        for (var i = 0; i < 30; i++)
         {
             if (TryResolvePhysicalFilePath(recording.OutputFilePath, out var resolvedPath)
                 && System.IO.File.Exists(resolvedPath))
@@ -392,7 +385,7 @@ public class MeetingRecordingsController : ControllerBase
         {
             recording.Status = "Failed";
             recording.ErrorMessage =
-                "Recording output was not generated. Wait until recording is active for at least 30 seconds before stopping and ensure room has media.";
+                "Recording output was not generated yet. Ensure at least one participant publishes audio/video during the meeting and try recording again.";
         }
 
         await _db.SaveChangesAsync();

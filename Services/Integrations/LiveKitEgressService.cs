@@ -250,7 +250,7 @@ public class LiveKitEgressService
         var payload = new
         {
             room_name = roomName,
-            layout = "speaker-dark",
+            layout = "grid-dark",
             file_outputs = new[]
             {
                 new
