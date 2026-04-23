@@ -351,7 +351,10 @@ public class MeetingRecordingsController : ControllerBase
             return BadRequest("Recording does not have egress id");
 
         var (ok, error) = await _egress.StopEgressAsync(recording.EgressId, HttpContext.RequestAborted);
-        if (!ok)
+        var isAlreadyFinished = !string.IsNullOrWhiteSpace(error)
+            && error.Contains("EGRESS_COMPLETE", StringComparison.OrdinalIgnoreCase);
+
+        if (!ok && !isAlreadyFinished)
         {
             recording.Status = "Failed";
             recording.ErrorMessage = error;
@@ -385,7 +388,7 @@ public class MeetingRecordingsController : ControllerBase
         {
             recording.Status = "Failed";
             recording.ErrorMessage =
-                "Recording output was not generated yet. Ensure at least one participant publishes audio/video during the meeting and try recording again.";
+                "Recording output was not generated yet. Ensure at least one participant publishes audio during the meeting and try recording again.";
         }
 
         await _db.SaveChangesAsync();

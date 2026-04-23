@@ -251,6 +251,9 @@ public class LiveKitEgressService
         {
             room_name = roomName,
             layout = "grid-dark",
+            // Keep composite recording enabled (not audio-only) so recordings can still
+            // be generated when participants do not publish a stable audio track.
+            audio_only = false,
             file_outputs = new[]
             {
                 new
