@@ -356,18 +356,20 @@ public class MeetingRecordingsController : ControllerBase
 
         if (!ok && !isAlreadyFinished)
         {
-            recording.Status = "Failed";
+            // Do not fail the Stop API for transient egress errors.
+            // Mark as Stopping and let background watcher re-check file presence.
+            recording.Status = "Stopping";
             recording.ErrorMessage = error;
             recording.EndedAtUtc = DateTime.UtcNow;
             await _db.SaveChangesAsync();
-            return BadRequest(error ?? "Failed to stop recording");
+            return Ok(ToDto(recording));
         }
 
         recording.EndedAtUtc = DateTime.UtcNow;
 
-        // Wait briefly for file flush to mounted storage before final status.
+        // Wait for file flush to mounted storage before final status (allow longer timeout).
         var hasFile = false;
-        for (var i = 0; i < 30; i++)
+        for (var i = 0; i < 90; i++)
         {
             if (TryResolvePhysicalFilePath(recording.OutputFilePath, out var resolvedPath)
                 && System.IO.File.Exists(resolvedPath))

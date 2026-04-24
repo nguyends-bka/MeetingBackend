@@ -87,6 +87,7 @@ builder.Services.Configure<FaceMatchingOptions>(
 
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddHttpClient<LiveKitEgressService>();
+builder.Services.AddHostedService<RecordingFileWatcherService>();
 
 builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp, client) =>
 {
