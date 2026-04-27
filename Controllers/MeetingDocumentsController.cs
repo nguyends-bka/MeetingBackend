@@ -6,6 +6,7 @@ using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
 using MeetingBackend.Services;
 using System.Security.Claims;
+using System.Net.Http.Headers;
 
 namespace MeetingBackend.Controllers;
 
@@ -16,12 +17,21 @@ public class MeetingDocumentsController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _env;
+    private readonly ILogger<MeetingDocumentsController> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly string _docsRoot;
+    private const string RagEmbedFileUrl = "https://rag.soictlab.com/embed/file";
 
-    public MeetingDocumentsController(AppDbContext db, IWebHostEnvironment env)
+    public MeetingDocumentsController(
+        AppDbContext db,
+        IWebHostEnvironment env,
+        ILogger<MeetingDocumentsController> logger,
+        IHttpClientFactory httpClientFactory)
     {
         _db = db;
         _env = env;
+        _logger = logger;
+        _httpClientFactory = httpClientFactory;
         _docsRoot =
             Environment.GetEnvironmentVariable("MEETING_DOCS_DIR") ??
             Path.Combine(Directory.GetCurrentDirectory(), "uploads", "meeting-docs");
@@ -58,6 +68,79 @@ public class MeetingDocumentsController : ControllerBase
     {
         var name = Path.GetFileName(fileName);
         return string.IsNullOrWhiteSpace(name) ? "upload.bin" : name;
+    }
+
+    private static string TruncateForLog(string? value, int maxLen = 2000)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        if (value.Length <= maxLen) return value;
+        return value[..maxLen] + "...";
+    }
+
+    private async Task TryEmbedFileToRagAsync(Guid meetingId, MeetingDocument doc, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(doc.StoragePath) || !System.IO.File.Exists(doc.StoragePath))
+        {
+            _logger.LogWarning(
+                "[embed/file] Skip because storage file missing. meetingId={MeetingId} docId={DocId} path={StoragePath}",
+                meetingId,
+                doc.Id,
+                doc.StoragePath);
+            return;
+        }
+
+        using var fileStream = System.IO.File.OpenRead(doc.StoragePath);
+        using var multipart = new MultipartFormDataContent();
+        using var fileContent = new StreamContent(fileStream);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue(
+            string.IsNullOrWhiteSpace(doc.ContentType) ? "application/octet-stream" : doc.ContentType);
+        multipart.Add(fileContent, "file", doc.FileName);
+        multipart.Add(new StringContent(doc.Id.ToString()), "doc_id");
+        multipart.Add(new StringContent(meetingId.ToString()), "collection");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, RagEmbedFileUrl)
+        {
+            Content = multipart
+        };
+
+        var authHeader = Request.Headers.Authorization.ToString();
+        if (!string.IsNullOrWhiteSpace(authHeader)
+            && AuthenticationHeaderValue.TryParse(authHeader, out var parsedAuth))
+        {
+            request.Headers.Authorization = parsedAuth;
+        }
+
+        _logger.LogInformation(
+            "[embed/file] Request -> url={Url} meetingId={MeetingId} docId={DocId} fileName={FileName} size={Size} contentType={ContentType}",
+            RagEmbedFileUrl,
+            meetingId,
+            doc.Id,
+            doc.FileName,
+            doc.Size,
+            doc.ContentType);
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            using var response = await client.SendAsync(request, cancellationToken);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            _logger.LogInformation(
+                "[embed/file] Response <- status={StatusCode} ok={IsSuccess} meetingId={MeetingId} docId={DocId} body={Body}",
+                (int)response.StatusCode,
+                response.IsSuccessStatusCode,
+                meetingId,
+                doc.Id,
+                TruncateForLog(body));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "[embed/file] Request failed. meetingId={MeetingId} docId={DocId}",
+                meetingId,
+                doc.Id);
+        }
     }
 
     public sealed class UpdateDocumentVisibilityRequest
@@ -161,6 +244,9 @@ public class MeetingDocumentsController : ControllerBase
 
         _db.MeetingDocuments.Add(doc);
         await _db.SaveChangesAsync();
+
+        // Best-effort: forward uploaded file to RAG embed endpoint and log request/response on server.
+        await TryEmbedFileToRagAsync(meetingId, doc, HttpContext.RequestAborted);
 
         return Ok(new MeetingDocumentDto
         {

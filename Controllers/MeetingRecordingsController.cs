@@ -397,4 +397,47 @@ public class MeetingRecordingsController : ControllerBase
 
         return Ok(ToDto(recording));
     }
+
+    [HttpDelete("{meetingId}/recordings/{recordingId}")]
+    public async Task<IActionResult> Delete(Guid meetingId, Guid recordingId)
+    {
+        var userId = GetUserId();
+        var username = GetUsername();
+
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId);
+        if (meeting == null) return NotFound("Meeting not found");
+
+        var isHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username);
+        if (!isHost) return Unauthorized("Only meeting host/co-host can delete recording");
+
+        var recording = await _db.Set<MeetingRecording>().FirstOrDefaultAsync(r =>
+            r.MeetingId == meetingId && r.Id == recordingId);
+        if (recording == null) return NotFound("Recording not found");
+
+        var status = (recording.Status ?? string.Empty).Trim();
+        if (string.Equals(status, "Starting", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Active", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, "Stopping", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest("Cannot delete an active recording. Stop it first.");
+        }
+
+        if (TryResolvePhysicalFilePath(recording.OutputFilePath, out var filePath)
+            && System.IO.File.Exists(filePath))
+        {
+            try
+            {
+                System.IO.File.Delete(filePath);
+            }
+            catch
+            {
+                return StatusCode(500, "Failed to delete recording file");
+            }
+        }
+
+        _db.Set<MeetingRecording>().Remove(recording);
+        await _db.SaveChangesAsync();
+
+        return NoContent();
+    }
 }

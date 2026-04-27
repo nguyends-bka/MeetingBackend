@@ -10,17 +10,20 @@ public class MeetingApplicationService : IMeetingApplicationService
 {
     private readonly AppDbContext _db;
     private readonly LiveKitTokenService _liveKit;
+    private readonly LiveKitEgressService _egress;
     private readonly IConfiguration _config;
     private readonly MeetingCodeService _codeService;
 
     public MeetingApplicationService(
         AppDbContext db,
         LiveKitTokenService liveKit,
+        LiveKitEgressService egress,
         IConfiguration config,
         MeetingCodeService codeService)
     {
         _db = db;
         _liveKit = liveKit;
+        _egress = egress;
         _config = config;
         _codeService = codeService;
     }
@@ -382,6 +385,39 @@ public class MeetingApplicationService : IMeetingApplicationService
         var now = DateTime.UtcNow;
         meeting.StartedAt ??= now;
         meeting.EndedAt = now;
+
+        var activeRecordings = await _db.MeetingRecordings
+            .Where(r => r.MeetingId == meetingId
+                && (r.Status == "Starting" || r.Status == "Active" || r.Status == "Stopping"))
+            .ToListAsync(cancellationToken);
+
+        foreach (var recording in activeRecordings)
+        {
+            recording.EndedAtUtc ??= now;
+
+            if (string.IsNullOrWhiteSpace(recording.EgressId))
+            {
+                recording.Status = "Failed";
+                recording.ErrorMessage = "Recording does not have egress id";
+                continue;
+            }
+
+            var (ok, error) = await _egress.StopEgressAsync(recording.EgressId, cancellationToken);
+            var isAlreadyFinished = !string.IsNullOrWhiteSpace(error)
+                && error.Contains("EGRESS_COMPLETE", StringComparison.OrdinalIgnoreCase);
+
+            // Keep status at Stopping after meeting end and let background watcher
+            // finalize to Completed/Failed once output file state is stable.
+            recording.Status = "Stopping";
+            if (ok || isAlreadyFinished)
+            {
+                recording.ErrorMessage = null;
+            }
+            else
+            {
+                recording.ErrorMessage = error;
+            }
+        }
 
         var actives = await _db.MeetingParticipants
             .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
