@@ -9,6 +9,7 @@ using MeetingBackend.Mappers;
 using MeetingBackend.Policies;
 using MeetingBackend.Services;
 using MeetingBackend.Services.Meeting;
+using Npgsql;
 
 namespace MeetingBackend.Controllers;
 
@@ -46,6 +47,74 @@ public class MeetingController : ControllerBase
             MeetingAppStatus.NotFound => NotFound(result.Message),
             _ => BadRequest("Yeu cau khong hop le"),
         };
+    }
+
+    private async Task TryCreateNotificationAsync(
+        string recipientUserId,
+        Guid meetingId,
+        string meetingTitle,
+        string type,
+        string message,
+        string actorUsername,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            _db.MeetingNotifications.Add(new MeetingNotification
+            {
+                Id = Guid.NewGuid(),
+                RecipientUserId = recipientUserId,
+                MeetingId = meetingId,
+                MeetingTitle = meetingTitle,
+                Type = type,
+                Message = message,
+                ActorUsername = actorUsername,
+                CreatedAt = DateTime.UtcNow,
+            });
+
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            // relation does not exist: migrations may not have been applied yet.
+            // Try to migrate once and then retry the insert.
+            Console.WriteLine($"MeetingNotifications table missing during write; attempting migrate: {ex.MessageText}");
+
+            try
+            {
+                await _db.Database.MigrateAsync(ct);
+
+                // Clear failed tracked state before retry.
+                _db.ChangeTracker.Clear();
+
+                _db.MeetingNotifications.Add(new MeetingNotification
+                {
+                    Id = Guid.NewGuid(),
+                    RecipientUserId = recipientUserId,
+                    MeetingId = meetingId,
+                    MeetingTitle = meetingTitle,
+                    Type = type,
+                    Message = message,
+                    ActorUsername = actorUsername,
+                    CreatedAt = DateTime.UtcNow,
+                });
+
+                await _db.SaveChangesAsync(ct);
+            }
+            catch (Exception retryEx)
+            {
+                var details = retryEx.InnerException?.Message ?? retryEx.Message;
+                Console.WriteLine($"Notification write retry failed ({type}): {details}");
+            }
+        }
+        catch (Exception ex)
+        {
+            var pg = ex as PostgresException;
+            var details = pg != null
+                ? $"{pg.SqlState} {pg.MessageText}"
+                : (ex.InnerException?.Message ?? ex.Message);
+            Console.WriteLine($"Notification write failed ({type}): {details}");
+        }
     }
 
     // ==========================
@@ -240,7 +309,17 @@ public class MeetingController : ControllerBase
             MeetingId = meetingId,
             Username = target.Username,
         });
+
         await _db.SaveChangesAsync();
+
+        await TryCreateNotificationAsync(
+            target.Id.ToString(),
+            meetingId,
+            meeting.Title,
+            "invite_added",
+            $"{username} đã thêm bạn vào cuộc họp \"{meeting.Title}\"",
+            username,
+            HttpContext.RequestAborted);
 
         return Ok(new MeetingInviteeDto
         {
@@ -392,7 +471,17 @@ public class MeetingController : ControllerBase
             Username = target.Username,
         });
         _db.MeetingInvitees.Remove(inviteeRow);
+
         await _db.SaveChangesAsync();
+
+        await TryCreateNotificationAsync(
+            target.Id.ToString(),
+            meetingId,
+            meeting.Title,
+            "cohost_granted",
+            $"{username} đã cấp quyền chủ trì cho bạn tại cuộc họp \"{meeting.Title}\"",
+            username,
+            HttpContext.RequestAborted);
 
         return Ok(new MeetingCoHostDto
         {
@@ -440,7 +529,25 @@ public class MeetingController : ControllerBase
                 Username = cohost.Username,
             });
         }
+
         await _db.SaveChangesAsync();
+
+        var demotedUser = await _db.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Username.ToLower() == cohost.Username.ToLower());
+
+        if (demotedUser != null)
+        {
+            await TryCreateNotificationAsync(
+                demotedUser.Id.ToString(),
+                meetingId,
+                meeting.Title,
+                "cohost_removed",
+                $"{username} đã gỡ bỏ quyền chủ trì của bạn tại cuộc họp \"{meeting.Title}\"",
+                username,
+                HttpContext.RequestAborted);
+        }
+
         return Ok(new { message = "Role changed to member" });
     }
 
@@ -474,7 +581,18 @@ public class MeetingController : ControllerBase
             return NotFound("Co-host not found");
 
         _db.MeetingCoHosts.Remove(row);
+
         await _db.SaveChangesAsync();
+
+        await TryCreateNotificationAsync(
+            decoded,
+            meetingId,
+            meeting.Title,
+            "cohost_removed",
+            $"{actorUsername} đã gỡ bỏ quyền chủ trì của bạn tại cuộc họp \"{meeting.Title}\"",
+            actorUsername,
+            HttpContext.RequestAborted);
+
         return Ok(new { message = "Removed" });
     }
 
@@ -553,5 +671,91 @@ public class MeetingController : ControllerBase
             .ToListAsync();
 
         return Ok(history);
+    }
+
+    // ==========================
+    // LẤY THÔNG BÁO CỦA USER
+    // ==========================
+    [HttpGet("my-notifications")]
+    [Authorize]
+    public async Task<IActionResult> GetMyNotifications()
+    {
+        try
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                         ?? User.FindFirstValue(ClaimTypes.Name);
+
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized("User identity not found");
+
+            var notifications = await _db.MeetingNotifications
+                .Where(n => n.RecipientUserId == userId)
+                .OrderByDescending(n => n.CreatedAt)
+                .Take(10)
+                .Select(n => new MeetingNotificationDto
+                {
+                    Id = n.Id,
+                    MeetingId = n.MeetingId,
+                    MeetingTitle = n.MeetingTitle,
+                    Type = n.Type,
+                    Message = n.Message,
+                    ActorUsername = n.ActorUsername,
+                    CreatedAt = n.CreatedAt,
+                    OpenedAt = n.OpenedAt,
+                })
+                .ToListAsync();
+
+            return Ok(notifications);
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            // relation does not exist (e.g., migrations not applied yet)
+            Console.WriteLine($"MeetingNotifications table missing: {ex.MessageText}");
+            return Ok(new List<MeetingNotificationDto>());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in GetMyNotifications: {ex.Message}");
+            return StatusCode(500, new { error = ex.Message, details = ex.InnerException?.Message });
+        }
+    }
+
+    // ==========================
+    // ĐỀM THÔNG BÁO ĐÃ ĐƯỢC XEM
+    // ==========================
+    [HttpPost("notifications/{notificationId:guid}/open")]
+    [Authorize]
+    public async Task<IActionResult> OpenNotification(Guid notificationId)
+    {
+        try
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                         ?? User.FindFirstValue(ClaimTypes.Name);
+
+            if (string.IsNullOrEmpty(userId))
+                return Unauthorized("User identity not found");
+
+            var notification = await _db.MeetingNotifications
+                .FirstOrDefaultAsync(n => n.Id == notificationId && n.RecipientUserId == userId);
+
+            if (notification == null)
+                return NotFound("Notification not found");
+
+            notification.OpenedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            return Ok(new { openedAt = notification.OpenedAt });
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42P01")
+        {
+            // If the table isn't present yet, behave like it's not found.
+            Console.WriteLine($"MeetingNotifications table missing: {ex.MessageText}");
+            return NotFound("Notification not found");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in OpenNotification: {ex.Message}");
+            return StatusCode(500, new { error = ex.Message });
+        }
     }
 }

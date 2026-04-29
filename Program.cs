@@ -3,6 +3,7 @@ using MeetingBackend.Data;
 using MeetingBackend.Options;
 using MeetingBackend.Services;
 using MeetingBackend.Services.Auth;
+using MeetingBackend.Services.Infrastructure;
 using MeetingBackend.Services.Meeting;
 using MeetingBackend.Policies;
 using MeetingBackend.Middleware;
@@ -88,6 +89,7 @@ builder.Services.Configure<FaceMatchingOptions>(
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddHttpClient<LiveKitEgressService>();
 builder.Services.AddHostedService<RecordingFileWatcherService>();
+builder.Services.AddHostedService<DatabaseMigrationHostedService>();
 
 builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp, client) =>
 {

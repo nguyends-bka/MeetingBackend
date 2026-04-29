@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<OrganizationUnit> OrganizationUnits => Set<OrganizationUnit>();
     public DbSet<MeetingInvitee> MeetingInvitees => Set<MeetingInvitee>();
     public DbSet<MeetingCoHost> MeetingCoHosts => Set<MeetingCoHost>();
+    public DbSet<MeetingNotification> MeetingNotifications => Set<MeetingNotification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
