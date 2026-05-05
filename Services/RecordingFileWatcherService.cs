@@ -39,7 +39,7 @@ public class RecordingFileWatcherService : BackgroundService
                     .Where(r => r.OutputFilePath != null
                                 && r.EndedAtUtc != null
                                 && r.EndedAtUtc >= cutoff
-                                && !string.Equals(r.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+                                && (r.Status == null || r.Status.ToLower() != "completed"))
                     .ToListAsync(stoppingToken);
 
                 if (candidates.Count > 0)

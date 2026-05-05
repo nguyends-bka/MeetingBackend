@@ -17,6 +17,8 @@ using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Logging.AddConsole();
+
 // =======================
 // Controllers
 // =======================
@@ -88,8 +90,14 @@ builder.Services.Configure<FaceMatchingOptions>(
 
 builder.Services.AddSingleton<LiveKitTokenService>();
 builder.Services.AddHttpClient<LiveKitEgressService>();
+builder.Services.AddHttpClient("RagEmbed", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
 builder.Services.AddHostedService<RecordingFileWatcherService>();
 builder.Services.AddHostedService<DatabaseMigrationHostedService>();
+builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
+builder.Services.AddHostedService<BackgroundTaskService>();
 
 builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp, client) =>
 {

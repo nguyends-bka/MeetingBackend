@@ -688,22 +688,27 @@ public class MeetingController : ControllerBase
             if (string.IsNullOrEmpty(userId))
                 return Unauthorized("User identity not found");
 
-            var notifications = await _db.MeetingNotifications
-                .Where(n => n.RecipientUserId == userId)
-                .OrderByDescending(n => n.CreatedAt)
-                .Take(10)
-                .Select(n => new MeetingNotificationDto
-                {
-                    Id = n.Id,
-                    MeetingId = n.MeetingId,
-                    MeetingTitle = n.MeetingTitle,
-                    Type = n.Type,
-                    Message = n.Message,
-                    ActorUsername = n.ActorUsername,
-                    CreatedAt = n.CreatedAt,
-                    OpenedAt = n.OpenedAt,
-                })
-                .ToListAsync();
+            async Task<List<MeetingNotificationDto>> LoadNotificationsAsync()
+            {
+                return await _db.MeetingNotifications
+                    .Where(n => n.RecipientUserId == userId)
+                    .OrderByDescending(n => n.CreatedAt)
+                    .Take(10)
+                    .Select(n => new MeetingNotificationDto
+                    {
+                        Id = n.Id,
+                        MeetingId = n.MeetingId,
+                        MeetingTitle = n.MeetingTitle,
+                        Type = n.Type,
+                        Message = n.Message,
+                        ActorUsername = n.ActorUsername,
+                        CreatedAt = n.CreatedAt,
+                        OpenedAt = n.OpenedAt,
+                    })
+                    .ToListAsync();
+            }
+
+            var notifications = await LoadNotificationsAsync();
 
             return Ok(notifications);
         }
@@ -712,6 +717,48 @@ public class MeetingController : ControllerBase
             // relation does not exist (e.g., migrations not applied yet)
             Console.WriteLine($"MeetingNotifications table missing: {ex.MessageText}");
             return Ok(new List<MeetingNotificationDto>());
+        }
+        catch (PostgresException ex) when (ex.SqlState == "42703")
+        {
+            // column does not exist; attempt to migrate once and retry.
+            Console.WriteLine($"MeetingNotifications column missing: {ex.MessageText}");
+
+            try
+            {
+                await _db.Database.MigrateAsync();
+                _db.ChangeTracker.Clear();
+
+                var userId = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                             ?? User.FindFirstValue(ClaimTypes.Name);
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return Unauthorized("User identity not found");
+                }
+
+                var notifications = await _db.MeetingNotifications
+                    .Where(n => n.RecipientUserId == userId)
+                    .OrderByDescending(n => n.CreatedAt)
+                    .Take(10)
+                    .Select(n => new MeetingNotificationDto
+                    {
+                        Id = n.Id,
+                        MeetingId = n.MeetingId,
+                        MeetingTitle = n.MeetingTitle,
+                        Type = n.Type,
+                        Message = n.Message,
+                        ActorUsername = n.ActorUsername,
+                        CreatedAt = n.CreatedAt,
+                        OpenedAt = n.OpenedAt,
+                    })
+                    .ToListAsync();
+
+                return Ok(notifications);
+            }
+            catch (Exception retryEx)
+            {
+                Console.WriteLine($"MeetingNotifications retry after migrate failed: {retryEx.Message}");
+                return Ok(new List<MeetingNotificationDto>());
+            }
         }
         catch (Exception ex)
         {
