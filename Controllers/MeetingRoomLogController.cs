@@ -3,6 +3,7 @@ using MeetingBackend.Data;
 using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
 using MeetingBackend.Services;
+using MeetingBackend.Services.Integrations;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -15,10 +16,12 @@ namespace MeetingBackend.Controllers;
 public class MeetingRoomLogController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly IServiceScopeFactory _scopeFactory;
 
-    public MeetingRoomLogController(AppDbContext db)
+    public MeetingRoomLogController(AppDbContext db, IServiceScopeFactory scopeFactory)
     {
         _db = db;
+        _scopeFactory = scopeFactory;
     }
 
     private static string UserId(ClaimsPrincipal user) =>
@@ -181,6 +184,35 @@ public class MeetingRoomLogController : ControllerBase
             CreatedAtUtc = DateTime.UtcNow,
         });
         await _db.SaveChangesAsync();
+
+        // Resolve tên người nói rồi gửi lên RAG (fire-and-forget)
+        // Tạo scope mới để tránh ObjectDisposedException (DbContext/scoped services bị dispose sau khi request kết thúc)
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var ragClient = scope.ServiceProvider.GetRequiredService<RagTranscriptClient>();
+
+                string speakerName = speakerIdentity;
+                if (Guid.TryParse(speakerIdentity, out var speakerGuid))
+                {
+                    var user = await db.Users.AsNoTracking()
+                        .Where(u => u.Id == speakerGuid)
+                        .Select(u => new { Name = string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName })
+                        .FirstOrDefaultAsync();
+                    if (user != null) speakerName = user.Name;
+                }
+
+                await ragClient.SendAsync(meetingId, speakerName, at, text);
+            }
+            catch
+            {
+                // Lỗi RAG không được ảnh hưởng response chính
+            }
+        });
+
         return Ok(new { ok = true });
     }
 }
