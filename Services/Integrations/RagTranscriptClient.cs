@@ -32,7 +32,8 @@ public class RagTranscriptClient
         {
             var payload = new
             {
-                meeting_id = meetingId.ToString(),
+                //meeting_id = meetingId.ToString(),
+                collection = $"meeting-{meetingId}",
                 speaker_name = speakerName,
                 at = new DateTimeOffset(DateTime.SpecifyKind(atUtc, DateTimeKind.Utc))
                          .ToOffset(TimeSpan.FromHours(7))

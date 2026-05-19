@@ -107,7 +107,8 @@ public class MeetingDocumentsController : ControllerBase
             }
             fileContent.Headers.ContentType = mediaType;
             var docIdValue = doc.Id.ToString();
-            var collectionValue = meetingId.ToString();
+            //var collectionValue = meetingId.ToString();
+            var collectionValue = $"docs-{meetingId}";
 
             multipart.Add(fileContent, "file", doc.FileName);
             multipart.Add(new StringContent(docIdValue), "doc_id");
