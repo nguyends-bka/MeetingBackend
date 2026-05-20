@@ -8,7 +8,8 @@ namespace MeetingBackend.Services.Integrations;
 /// </summary>
 public class RagTranscriptClient
 {
-    private const string RagTranscriptUrl = "https://rag.soictlab.com/transcript";
+    //private const string RagTranscriptUrl = "https://rag.soictlab.com/transcript";
+    private const string RagBaseUrl = "https://rag.soictlab.com/transcript";
     // private const string RagTranscriptUrl = "http://localhost:3001";
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<RagTranscriptClient> _logger;
@@ -28,17 +29,20 @@ public class RagTranscriptClient
     /// <param name="text">Nội dung transcript</param>
     public async Task SendAsync(Guid meetingId, string speakerName, DateTime atUtc, string text)
     {
+        var collection = $"meeting-{meetingId}";
+        var ragEmbedUrl = $"{RagBaseUrl}/{collection}/embed";
         try
         {
             var payload = new
             {
                 //meeting_id = meetingId.ToString(),
-                collection = $"meeting-{meetingId}",
-                speaker_name = speakerName,
-                at = new DateTimeOffset(DateTime.SpecifyKind(atUtc, DateTimeKind.Utc))
+                //collection = $"meeting-{meetingId}",
+                speaker = speakerName,
+                text = text,
+                timestamp = new DateTimeOffset(DateTime.SpecifyKind(atUtc, DateTimeKind.Utc))
                          .ToOffset(TimeSpan.FromHours(7))
-                         .ToString("yyyy-MM-ddTHH:mm:sszzz"),  // ISO 8601: 2026-05-18T15:54:54+07:00
-                text = text
+                         .ToString("yyyy-MM-ddTHH:mm:sszzz")  // ISO 8601: 2026-05-18T15:54:54+07:00
+
             };
 
             var json = JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
@@ -47,10 +51,11 @@ public class RagTranscriptClient
             // ── LOG PAYLOAD TRƯỚC KHI GỬI ──────────────────────────────────────
             _logger.LogInformation(
                 "[RAG Transcript] → POST {Url}\n{Payload}",
-                RagTranscriptUrl, json);
+                ragEmbedUrl, json);
 
             var client = _httpClientFactory.CreateClient("RagTranscript");
-            using var response = await client.PostAsync(RagTranscriptUrl, content);
+            //using var response = await client.PostAsync(RagTranscriptUrl, content);
+            using var response = await client.PostAsync(ragEmbedUrl, content);
 
             var responseBody = await response.Content.ReadAsStringAsync();
 
@@ -58,19 +63,19 @@ public class RagTranscriptClient
             {
                 _logger.LogWarning(
                     "[RAG Transcript] ✗ {StatusCode} ← {Url}\nResponse: {Body}",
-                    (int)response.StatusCode, RagTranscriptUrl, responseBody);
+                    (int)response.StatusCode, ragEmbedUrl, responseBody);
             }
             else
             {
                 _logger.LogInformation(
                     "[RAG Transcript] ✓ {StatusCode} ← {Url}\nResponse: {Body}",
-                    (int)response.StatusCode, RagTranscriptUrl, responseBody);
+                    (int)response.StatusCode, ragEmbedUrl, responseBody);
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "[RAG Transcript] ✗ Exception khi gửi tới {Url}. MeetingId={MeetingId}",
-                RagTranscriptUrl, meetingId);
+                ragEmbedUrl, meetingId);
         }
     }
 }
