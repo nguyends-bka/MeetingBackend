@@ -1,4 +1,5 @@
 using MeetingBackend.DTOs.Auth;
+using MeetingBackend.DTOs.Catalog;
 using MeetingBackend.DTOs.User;
 using MeetingBackend.Entities;
 
@@ -24,7 +25,11 @@ public static class UserMapper
         };
     }
 
-    public static UserProfileResponseDto ToUserProfileDto(User user, string? organizationUnitName = null)
+    public static UserProfileResponseDto ToUserProfileDto(
+        User user,
+        string? organizationUnitName = null,
+        List<UserCountryResponseDto>? countries = null,
+        List<UserLanguageResponseDto>? languages = null)
     {
         return new UserProfileResponseDto
         {
@@ -40,11 +45,17 @@ public static class UserMapper
             OrganizationUnitName = organizationUnitName,
             Avatar = user.Avatar,
             HasFaceEmbedding = user.FaceEmbedding != null && user.FaceEmbedding.Length > 0,
-            CreatedAt = user.CreatedAt
+            CreatedAt = user.CreatedAt,
+            Countries = countries ?? [],
+            Languages = languages ?? []
         };
     }
 
-    public static UserDto ToUserDto(User user, string? organizationUnitName = null)
+    public static UserDto ToUserDto(
+        User user,
+        string? organizationUnitName = null,
+        List<UserCountryResponseDto>? countries = null,
+        List<UserLanguageResponseDto>? languages = null)
     {
         return new UserDto
         {
@@ -59,7 +70,9 @@ public static class UserMapper
             OrganizationUnitId = user.OrganizationUnitId,
             OrganizationUnitName = organizationUnitName,
             Avatar = user.Avatar,
-            HasFaceEmbedding = user.FaceEmbedding != null && user.FaceEmbedding.Length > 0
+            HasFaceEmbedding = user.FaceEmbedding != null && user.FaceEmbedding.Length > 0,
+            Countries = countries ?? [],
+            Languages = languages ?? []
         };
     }
 }

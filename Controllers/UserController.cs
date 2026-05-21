@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using MeetingBackend.Data;
+using MeetingBackend.DTOs.Catalog;
 using MeetingBackend.DTOs.User;
 using MeetingBackend.Entities;
 using MeetingBackend.Mappers;
@@ -45,6 +46,38 @@ public class UserController : ControllerBase
         });
     }
 
+    // ==========================
+    // DANH MỤC QUỐC GIA (public trong scope đăng nhập)
+    // ==========================
+    /// <summary>Lấy danh sách Countries đang active để hiển thị dropdown.</summary>
+    [HttpGet("countries")]
+    public async Task<IActionResult> ListCountries()
+    {
+        var items = await _db.Countries
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.CountryName)
+            .Select(x => new CountryDto { Code = x.Code, CountryName = x.CountryName })
+            .ToListAsync();
+        return Ok(items);
+    }
+
+    // ==========================
+    // DANH MỤC NGÔN NGỮ (public trong scope đăng nhập)
+    // ==========================
+    /// <summary>Lấy danh sách Languages đang active để hiển thị dropdown.</summary>
+    [HttpGet("languages")]
+    public async Task<IActionResult> ListLanguages()
+    {
+        var items = await _db.Languages
+            .AsNoTracking()
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.LanguageName)
+            .Select(x => new LanguageDto { Code = x.Code, LanguageName = x.LanguageName })
+            .ToListAsync();
+        return Ok(items);
+    }
+
     [HttpGet("profile")]
     public async Task<IActionResult> GetProfile()
     {
@@ -70,7 +103,30 @@ public class UserController : ControllerBase
                 .FirstOrDefaultAsync();
         }
 
-        var response = UserMapper.ToUserProfileDto(user, orgName);
+        var userGuid = user.Id;
+
+        var countries = await _db.UserCountries
+            .AsNoTracking()
+            .Where(uc => uc.UserId == userGuid)
+            .Join(_db.Countries, uc => uc.CountryCode, c => c.Code,
+                (uc, c) => new UserCountryResponseDto { Code = c.Code, CountryName = c.CountryName })
+            .ToListAsync();
+
+        var languages = await _db.UserLanguages
+            .AsNoTracking()
+            .Where(ul => ul.UserId == userGuid)
+            .Join(_db.Languages, ul => ul.LanguageCode, l => l.Code,
+                (ul, l) => new UserLanguageResponseDto
+                {
+                    Code = l.Code,
+                    LanguageName = l.LanguageName,
+                    IsPrimary = ul.IsPrimary
+                })
+            .OrderByDescending(l => l.IsPrimary)
+            .ThenBy(l => l.LanguageName)
+            .ToListAsync();
+
+        var response = UserMapper.ToUserProfileDto(user, orgName, countries, languages);
         return Ok(response);
     }
 
@@ -95,7 +151,7 @@ public class UserController : ControllerBase
     }
 
     // ==========================
-    // CẬP NHẬT THÔNG TIN CÁ NHÂN (FullName, Email)
+    // CẬP NHẬT THÔNG TIN CÁ NHÂN
     // ==========================
     [HttpPut("profile")]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequestDto request)
@@ -119,7 +175,7 @@ public class UserController : ControllerBase
             return BadRequest(new { message = "Email là bắt buộc" });
 
         // Kiểm tra email đã tồn tại chưa (nếu có email và khác email hiện tại)
-        if (!string.IsNullOrWhiteSpace(request.Email) && 
+        if (!string.IsNullOrWhiteSpace(request.Email) &&
             request.Email != user.Email &&
             await _db.Users.AnyAsync(u => u.Email == request.Email && u.Id.ToString() != userId))
         {
@@ -165,7 +221,55 @@ public class UserController : ControllerBase
             }
         }
 
-        // Cập nhật toàn bộ trường có trong body (client gửi đủ key, null = xóa / để trống).
+        // ── Validate CountryCodes ─────────────────────────────────────────────
+        if (request.CountryCodes != null)
+        {
+            var distinctCodes = request.CountryCodes.Select(c => c.Trim().ToUpper()).Distinct().ToList();
+            if (distinctCodes.Count != request.CountryCodes.Count)
+                return BadRequest(new { message = "Danh sách quốc gia có mã bị trùng" });
+
+            if (distinctCodes.Count > 0)
+            {
+                var validCodes = await _db.Countries
+                    .AsNoTracking()
+                    .Where(c => distinctCodes.Contains(c.Code) && c.IsActive)
+                    .Select(c => c.Code)
+                    .ToListAsync();
+
+                var invalidCodes = distinctCodes.Except(validCodes).ToList();
+                if (invalidCodes.Count > 0)
+                    return BadRequest(new { message = $"Mã quốc gia không hợp lệ hoặc đã bị vô hiệu hóa: {string.Join(", ", invalidCodes)}" });
+            }
+        }
+
+        // ── Validate Languages ────────────────────────────────────────────────
+        if (request.Languages != null)
+        {
+            var langCodes = request.Languages.Select(l => l.Code.Trim().ToLower()).ToList();
+            if (langCodes.Distinct().Count() != langCodes.Count)
+                return BadRequest(new { message = "Danh sách ngôn ngữ có mã bị trùng" });
+
+            if (request.Languages.Count > 0)
+            {
+                var primaryCount = request.Languages.Count(l => l.IsPrimary);
+                if (primaryCount == 0)
+                    return BadRequest(new { message = "Phải chọn đúng 1 ngôn ngữ ưu tiên (IsPrimary = true)" });
+                if (primaryCount > 1)
+                    return BadRequest(new { message = "Chỉ được chọn 1 ngôn ngữ ưu tiên (IsPrimary = true)" });
+
+                var validLangCodes = await _db.Languages
+                    .AsNoTracking()
+                    .Where(l => langCodes.Contains(l.Code) && l.IsActive)
+                    .Select(l => l.Code)
+                    .ToListAsync();
+
+                var invalidLangCodes = langCodes.Except(validLangCodes).ToList();
+                if (invalidLangCodes.Count > 0)
+                    return BadRequest(new { message = $"Mã ngôn ngữ không hợp lệ hoặc đã bị vô hiệu hóa: {string.Join(", ", invalidLangCodes)}" });
+            }
+        }
+
+        // ── Cập nhật thông tin cơ bản ─────────────────────────────────────────
         user.FullName = string.IsNullOrWhiteSpace(request.FullName) ? null : request.FullName.Trim();
         user.Email = string.IsNullOrWhiteSpace(request.Email) ? null : request.Email.Trim().ToLowerInvariant();
         user.Position = string.IsNullOrWhiteSpace(request.Position) ? null : request.Position.Trim();
@@ -174,8 +278,43 @@ public class UserController : ControllerBase
         user.OrganizationUnitId = request.OrganizationUnitId;
         user.Avatar = string.IsNullOrWhiteSpace(request.Avatar) ? null : request.Avatar.Trim();
 
+        // ── Cập nhật UserCountries (replace hoàn toàn nếu được gửi) ──────────
+        if (request.CountryCodes != null)
+        {
+            var existing = await _db.UserCountries
+                .Where(uc => uc.UserId == user.Id)
+                .ToListAsync();
+            _db.UserCountries.RemoveRange(existing);
+
+            var normalizedCodes = request.CountryCodes.Select(c => c.Trim().ToUpper()).Distinct();
+            foreach (var code in normalizedCodes)
+            {
+                _db.UserCountries.Add(new UserCountry { UserId = user.Id, CountryCode = code });
+            }
+        }
+
+        // ── Cập nhật UserLanguages (replace hoàn toàn nếu được gửi) ─────────
+        if (request.Languages != null)
+        {
+            var existingLangs = await _db.UserLanguages
+                .Where(ul => ul.UserId == user.Id)
+                .ToListAsync();
+            _db.UserLanguages.RemoveRange(existingLangs);
+
+            foreach (var lang in request.Languages)
+            {
+                _db.UserLanguages.Add(new UserLanguage
+                {
+                    UserId = user.Id,
+                    LanguageCode = lang.Code.Trim().ToLower(),
+                    IsPrimary = lang.IsPrimary
+                });
+            }
+        }
+
         await _db.SaveChangesAsync();
 
+        // Lấy orgName để trả về response
         string? orgName = null;
         if (user.OrganizationUnitId.HasValue)
         {
@@ -186,10 +325,32 @@ public class UserController : ControllerBase
                 .FirstOrDefaultAsync();
         }
 
+        // Lấy countries/languages mới nhất để trả về response
+        var updatedCountries = await _db.UserCountries
+            .AsNoTracking()
+            .Where(uc => uc.UserId == user.Id)
+            .Join(_db.Countries, uc => uc.CountryCode, c => c.Code,
+                (uc, c) => new UserCountryResponseDto { Code = c.Code, CountryName = c.CountryName })
+            .ToListAsync();
+
+        var updatedLanguages = await _db.UserLanguages
+            .AsNoTracking()
+            .Where(ul => ul.UserId == user.Id)
+            .Join(_db.Languages, ul => ul.LanguageCode, l => l.Code,
+                (ul, l) => new UserLanguageResponseDto
+                {
+                    Code = l.Code,
+                    LanguageName = l.LanguageName,
+                    IsPrimary = ul.IsPrimary
+                })
+            .OrderByDescending(l => l.IsPrimary)
+            .ThenBy(l => l.LanguageName)
+            .ToListAsync();
+
         var response = new UpdateProfileResponseDto
         {
             Message = "Cập nhật thông tin thành công",
-            User = UserMapper.ToUserDto(user, orgName)
+            User = UserMapper.ToUserDto(user, orgName, updatedCountries, updatedLanguages)
         };
 
         return Ok(response);

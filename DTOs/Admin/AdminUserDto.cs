@@ -1,3 +1,5 @@
+using MeetingBackend.DTOs.Catalog;
+
 namespace MeetingBackend.DTOs.Admin;
 
 public class AdminUserDto
@@ -14,4 +16,10 @@ public class AdminUserDto
     public string? OrganizationUnitName { get; set; }
     public bool HasAvatar { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Danh sách quốc tịch/quốc gia của user.</summary>
+    public List<UserCountryResponseDto> Countries { get; set; } = [];
+
+    /// <summary>Danh sách ngôn ngữ của user.</summary>
+    public List<UserLanguageResponseDto> Languages { get; set; } = [];
 }

@@ -1,3 +1,5 @@
+using MeetingBackend.DTOs.Catalog;
+
 namespace MeetingBackend.DTOs.User;
 
 public class UserProfileResponseDto
@@ -15,4 +17,10 @@ public class UserProfileResponseDto
     public string? Avatar { get; set; }
     public bool HasFaceEmbedding { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>Danh sách quốc tịch/quốc gia của user.</summary>
+    public List<UserCountryResponseDto> Countries { get; set; } = [];
+
+    /// <summary>Danh sách ngôn ngữ của user, trong đó đúng 1 bản ghi có IsPrimary = true.</summary>
+    public List<UserLanguageResponseDto> Languages { get; set; } = [];
 }

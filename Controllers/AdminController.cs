@@ -5,6 +5,7 @@ using System.Security.Claims;
 using MeetingBackend.Constants;
 using MeetingBackend.Data;
 using MeetingBackend.DTOs.Admin;
+using MeetingBackend.DTOs.Catalog;
 using MeetingBackend.Entities;
 using MeetingBackend.Mappers;
 using MeetingBackend.Policies;
@@ -43,6 +44,43 @@ public class AdminController : ControllerBase
             .Where(x => unitIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.Name);
 
+        // Lấy tất cả UserCountries + UserLanguages cho các users cùng lúc (tránh N+1)
+        var userIds = users.Select(u => u.Id).ToList();
+
+        var allUserCountries = await _db.UserCountries
+            .AsNoTracking()
+            .Where(uc => userIds.Contains(uc.UserId))
+            .Join(_db.Countries, uc => uc.CountryCode, c => c.Code,
+                (uc, c) => new { uc.UserId, c.Code, c.CountryName })
+            .ToListAsync();
+
+        var allUserLanguages = await _db.UserLanguages
+            .AsNoTracking()
+            .Where(ul => userIds.Contains(ul.UserId))
+            .Join(_db.Languages, ul => ul.LanguageCode, l => l.Code,
+                (ul, l) => new { ul.UserId, l.Code, l.LanguageName, ul.IsPrimary })
+            .ToListAsync();
+
+        var countriesByUser = allUserCountries
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => g.Select(x => new UserCountryResponseDto
+            {
+                Code = x.Code,
+                CountryName = x.CountryName
+            }).ToList());
+
+        var languagesByUser = allUserLanguages
+            .GroupBy(x => x.UserId)
+            .ToDictionary(g => g.Key, g => g
+                .OrderByDescending(x => x.IsPrimary)
+                .ThenBy(x => x.LanguageName)
+                .Select(x => new UserLanguageResponseDto
+                {
+                    Code = x.Code,
+                    LanguageName = x.LanguageName,
+                    IsPrimary = x.IsPrimary
+                }).ToList());
+
         var response = users.Select(u => new AdminUserDto
         {
             Id = u.Id,
@@ -58,11 +96,14 @@ public class AdminController : ControllerBase
                 ? unitName
                 : null,
             HasAvatar = !string.IsNullOrWhiteSpace(u.Avatar),
-            CreatedAt = u.CreatedAt
+            CreatedAt = u.CreatedAt,
+            Countries = countriesByUser.TryGetValue(u.Id, out var c) ? c : [],
+            Languages = languagesByUser.TryGetValue(u.Id, out var l) ? l : []
         }).ToList();
 
         return Ok(response);
     }
+
 
     // ==========================
     // CẬP NHẬT ROLE CỦA USER

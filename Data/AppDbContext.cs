@@ -25,6 +25,12 @@ public class AppDbContext : DbContext
     public DbSet<MeetingCoHost> MeetingCoHosts => Set<MeetingCoHost>();
     public DbSet<MeetingNotification> MeetingNotifications => Set<MeetingNotification>();
 
+    // ── Danh mục Quốc gia / Ngôn ngữ ────────────────────────────────────────
+    public DbSet<Country> Countries => Set<Country>();
+    public DbSet<Language> Languages => Set<Language>();
+    public DbSet<UserCountry> UserCountries => Set<UserCountry>();
+    public DbSet<UserLanguage> UserLanguages => Set<UserLanguage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<MeetingPoll>(e =>
@@ -136,5 +142,59 @@ public class AppDbContext : DbContext
                 .HasForeignKey(x => x.OrganizationUnitId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
+
+        // ── Countries ────────────────────────────────────────────────────────
+        modelBuilder.Entity<Country>(e =>
+        {
+            e.ToTable("Countries");
+            e.HasKey(x => x.Code);
+            e.Property(x => x.Code).HasMaxLength(10);
+            e.Property(x => x.CountryName).HasMaxLength(100).IsRequired();
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.HasIndex(x => x.IsActive);
+        });
+
+        // ── Languages ────────────────────────────────────────────────────────
+        modelBuilder.Entity<Language>(e =>
+        {
+            e.ToTable("Languages");
+            e.HasKey(x => x.Code);
+            e.Property(x => x.Code).HasMaxLength(10);
+            e.Property(x => x.LanguageName).HasMaxLength(100).IsRequired();
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.HasIndex(x => x.IsActive);
+        });
+
+        // ── UserCountries ─────────────────────────────────────────────────────
+        modelBuilder.Entity<UserCountry>(e =>
+        {
+            e.ToTable("UserCountries");
+            e.HasKey(x => new { x.UserId, x.CountryCode });
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Country)
+                .WithMany(c => c.UserCountries)
+                .HasForeignKey(x => x.CountryCode)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── UserLanguages ─────────────────────────────────────────────────────
+        modelBuilder.Entity<UserLanguage>(e =>
+        {
+            e.ToTable("UserLanguages");
+            e.HasKey(x => new { x.UserId, x.LanguageCode });
+            e.Property(x => x.IsPrimary).HasDefaultValue(false);
+            e.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Language)
+                .WithMany(l => l.UserLanguages)
+                .HasForeignKey(x => x.LanguageCode)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
     }
 }
+
