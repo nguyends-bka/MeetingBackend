@@ -171,6 +171,16 @@ public class MeetingController : ControllerBase
     }
 
     // ==========================
+    // LẤY CHI TIẾT CUỘC HỌP THEO ID
+    // ==========================
+    [HttpGet("{meetingId:guid}")]
+    public async Task<IActionResult> GetMeetingById(Guid meetingId)
+    {
+        var result = await _meetingApplicationService.GetMeetingByIdAsync(CurrentUser(), meetingId, HttpContext.RequestAborted);
+        return ToActionResult(result);
+    }
+
+    // ==========================
     // HOST CHỈNH SỬA CUỘC HỌP (khi chưa diễn ra)
     // ==========================
     [HttpPut("{meetingId:guid}")]

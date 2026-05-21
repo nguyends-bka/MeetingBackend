@@ -9,6 +9,7 @@ public interface IMeetingApplicationService
     Task<MeetingAppResult<JoinMeetingResponseDto>> JoinAsync(CurrentUserContext user, JoinMeetingRequestDto request, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<object>> JoinByCodeAsync(CurrentUserContext user, JoinMeetingRequestDto request, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<List<MeetingListItemDto>>> GetMeetingsAsync(CurrentUserContext user, CancellationToken cancellationToken = default);
+    Task<MeetingAppResult<MeetingListItemDto>> GetMeetingByIdAsync(CurrentUserContext user, Guid meetingId, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<MeetingListItemDto>> UpdateMeetingAsync(CurrentUserContext user, Guid meetingId, UpdateMeetingRequestDto request, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<LeaveMeetingResponseDto>> LeaveAsync(CurrentUserContext user, LeaveMeetingRequestDto request, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<object>> EndMeetingAsync(CurrentUserContext user, Guid meetingId, CancellationToken cancellationToken = default);

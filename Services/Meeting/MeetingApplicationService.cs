@@ -286,6 +286,99 @@ public class MeetingApplicationService : IMeetingApplicationService
         return MeetingAppResult<List<MeetingListItemDto>>.Ok(response);
     }
 
+    public async Task<MeetingAppResult<MeetingListItemDto>> GetMeetingByIdAsync(CurrentUserContext user, Guid meetingId, CancellationToken cancellationToken = default)
+    {
+        var userId = user.UserId;
+        var userRole = user.Role;
+        var username = user.Username ?? string.Empty;
+
+        if (string.IsNullOrEmpty(userId))
+            return MeetingAppResult<MeetingListItemDto>.Unauthorized("User identity not found");
+
+        var meeting = await _db.Meetings
+            .FirstOrDefaultAsync(m => m.Id == meetingId, cancellationToken);
+
+        if (meeting == null)
+            return MeetingAppResult<MeetingListItemDto>.NotFound("Meeting not found");
+
+        // Phân quyền: Admin, Host, Co-host, Invitee, hoặc đã từng tham gia (Participant)
+        bool hasAccess = userRole == "Admin";
+
+        if (!hasAccess)
+        {
+            var isPrimaryHost = string.Equals(meeting.HostIdentity, userId, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(username)
+                    && string.Equals(meeting.HostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (isPrimaryHost)
+            {
+                hasAccess = true;
+            }
+            else
+            {
+                var isCoHost = await MeetingHostAuth.IsCoHostAsync(_db, meetingId, userId, cancellationToken);
+                if (isCoHost)
+                {
+                    hasAccess = true;
+                }
+                else
+                {
+                    var isInvited = await _db.MeetingInvitees
+                        .AnyAsync(i => i.MeetingId == meetingId && i.Username.ToLower() == username.Trim().ToLower(), cancellationToken);
+                    if (isInvited)
+                    {
+                        hasAccess = true;
+                    }
+                    else
+                    {
+                        var hasParticipated = await _db.MeetingParticipants
+                            .AnyAsync(p => p.MeetingId == meetingId && (p.UserId == userId || p.Username.ToLower() == username.Trim().ToLower()), cancellationToken);
+                        if (hasParticipated)
+                        {
+                            hasAccess = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!hasAccess)
+        {
+            return MeetingAppResult<MeetingListItemDto>.Unauthorized("Bạn không có quyền truy cập thông tin cuộc họp này");
+        }
+
+        var isPrimaryHostUser = string.Equals(meeting.HostIdentity, userId.Trim(), StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(username)
+                && string.Equals(meeting.HostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase));
+        var isCoHostUser = await MeetingHostAuth.IsCoHostAsync(_db, meetingId, userId, cancellationToken);
+        var isMeetingHost = isPrimaryHostUser || isCoHostUser;
+
+        var managerMeetingIds = string.IsNullOrWhiteSpace(username)
+            ? new HashSet<Guid>()
+            : (await _db.MeetingPollManagers
+                .AsNoTracking()
+                .Where(x => x.Username.ToLower() == username.Trim().ToLower() && x.MeetingId == meetingId)
+                .Select(x => x.MeetingId)
+                .ToListAsync(cancellationToken))
+              .ToHashSet();
+
+        var canManagePoll = isMeetingHost || managerMeetingIds.Contains(meetingId);
+
+        var activeParticipantCount = await _db.MeetingParticipants
+            .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
+            .CountAsync(cancellationToken);
+
+        var dto = MeetingMapper.ToMeetingListItemDto(meeting);
+        dto.IsMeetingHost = isMeetingHost;
+        dto.CanManagePoll = canManagePoll;
+        dto.ActiveParticipantCount = activeParticipantCount;
+
+        var list = new List<MeetingListItemDto> { dto };
+        await EnrichHostInfoAsync(list, cancellationToken);
+
+        return MeetingAppResult<MeetingListItemDto>.Ok(list[0]);
+    }
+
     public async Task<MeetingAppResult<MeetingListItemDto>> UpdateMeetingAsync(CurrentUserContext user, Guid meetingId, UpdateMeetingRequestDto request, CancellationToken cancellationToken = default)
     {
         var userId = user.UserId;
