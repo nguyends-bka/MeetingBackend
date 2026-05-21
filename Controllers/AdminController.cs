@@ -218,27 +218,81 @@ public class AdminController : ControllerBase
             .OrderByDescending(m => m.CreatedAt)
             .ToListAsync();
 
-        var response = new List<AdminMeetingDto>();
-        foreach (var meeting in meetings)
-        {
-            var participantCount = await _db.MeetingParticipants.CountAsync(p => p.MeetingId == meeting.Id);
-            var activeParticipantCount = await _db.MeetingParticipants.CountAsync(p => p.MeetingId == meeting.Id && p.LeftAt == null);
+        var meetingIds = meetings.Select(m => m.Id).ToList();
 
-            response.Add(new AdminMeetingDto
+        var participantCounts = await _db.MeetingParticipants
+            .Where(p => meetingIds.Contains(p.MeetingId))
+            .GroupBy(p => p.MeetingId)
+            .Select(g => new { MeetingId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.MeetingId, x => x.Count);
+
+        var activeCounts = await _db.MeetingParticipants
+            .Where(p => meetingIds.Contains(p.MeetingId) && p.LeftAt == null)
+            .GroupBy(p => p.MeetingId)
+            .Select(g => new { MeetingId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.MeetingId, x => x.Count);
+
+        var response = meetings.Select(meeting => new AdminMeetingDto
+        {
+            Id = meeting.Id,
+            Title = meeting.Title,
+            HostName = meeting.HostName,
+            HostIdentity = meeting.HostIdentity,
+            MeetingCode = meeting.MeetingCode,
+            Passcode = meeting.Passcode,
+            RoomName = meeting.RoomName,
+            CreatedAt = meeting.CreatedAt,
+            StartedAt = meeting.StartedAt,
+            EndedAt = meeting.EndedAt,
+            ParticipantCount = participantCounts.TryGetValue(meeting.Id, out var pc) ? pc : 0,
+            ActiveParticipantCount = activeCounts.TryGetValue(meeting.Id, out var ac) ? ac : 0
+        }).ToList();
+
+        // Enrich Host Info
+        var hostIdentities = response
+            .Select(d => d.HostIdentity)
+            .Where(hid => !string.IsNullOrEmpty(hid))
+            .Distinct()
+            .ToList();
+
+        if (hostIdentities.Count > 0)
+        {
+            var hostGuids = new List<Guid>();
+            var hostUsernames = new List<string>();
+
+            foreach (var hid in hostIdentities)
             {
-                Id = meeting.Id,
-                Title = meeting.Title,
-                HostName = meeting.HostName,
-                HostIdentity = meeting.HostIdentity,
-                MeetingCode = meeting.MeetingCode,
-                Passcode = meeting.Passcode,
-                RoomName = meeting.RoomName,
-                CreatedAt = meeting.CreatedAt,
-                StartedAt = meeting.StartedAt,
-                EndedAt = meeting.EndedAt,
-                ParticipantCount = participantCount,
-                ActiveParticipantCount = activeParticipantCount
-            });
+                if (Guid.TryParse(hid, out var g))
+                {
+                    hostGuids.Add(g);
+                }
+                else
+                {
+                    hostUsernames.Add(hid);
+                }
+            }
+
+            var hostUsers = await _db.Users
+                .AsNoTracking()
+                .Where(u => hostGuids.Contains(u.Id) || hostUsernames.Contains(u.Username))
+                .Select(u => new { u.Id, u.Username, u.FullName })
+                .ToListAsync();
+
+            var hostMapById = hostUsers.ToDictionary(u => u.Id.ToString().ToLower(), u => u);
+            var hostMapByUsername = hostUsers.ToDictionary(u => u.Username.ToLower(), u => u);
+
+            foreach (var dto in response)
+            {
+                if (string.IsNullOrEmpty(dto.HostIdentity))
+                    continue;
+
+                var lookupKey = dto.HostIdentity.ToLower();
+                if (hostMapById.TryGetValue(lookupKey, out var userObj) || hostMapByUsername.TryGetValue(lookupKey, out userObj))
+                {
+                    dto.HostName = !string.IsNullOrWhiteSpace(userObj.FullName) ? userObj.FullName : userObj.Username;
+                    dto.HostIdentity = userObj.Username;
+                }
+            }
         }
 
         return Ok(response);

@@ -281,6 +281,8 @@ public class MeetingApplicationService : IMeetingApplicationService
             return dto;
         }).ToList();
 
+        await EnrichHostInfoAsync(response, cancellationToken);
+
         return MeetingAppResult<List<MeetingListItemDto>>.Ok(response);
     }
 
@@ -325,7 +327,11 @@ public class MeetingApplicationService : IMeetingApplicationService
         dto.IsMeetingHost = true;
         dto.CanManagePoll = true;
         dto.ActiveParticipantCount = 0;
-        return MeetingAppResult<MeetingListItemDto>.Ok(dto);
+
+        var list = new List<MeetingListItemDto> { dto };
+        await EnrichHostInfoAsync(list, cancellationToken);
+
+        return MeetingAppResult<MeetingListItemDto>.Ok(list[0]);
     }
 
     public async Task<MeetingAppResult<LeaveMeetingResponseDto>> LeaveAsync(CurrentUserContext user, LeaveMeetingRequestDto request, CancellationToken cancellationToken = default)
@@ -514,5 +520,53 @@ public class MeetingApplicationService : IMeetingApplicationService
 
         await _db.SaveChangesAsync(cancellationToken);
         return participant;
+    }
+
+    private async Task EnrichHostInfoAsync(List<MeetingListItemDto> dtos, CancellationToken cancellationToken)
+    {
+        var hostIdentities = dtos
+            .Select(d => d.HostIdentity)
+            .Where(x => !string.IsNullOrEmpty(x))
+            .Distinct()
+            .ToList();
+
+        if (!hostIdentities.Any())
+            return;
+
+        var hostGuids = new List<Guid>();
+        var hostUsernames = new List<string>();
+        foreach (var hid in hostIdentities)
+        {
+            if (Guid.TryParse(hid, out var g))
+            {
+                hostGuids.Add(g);
+            }
+            else
+            {
+                hostUsernames.Add(hid);
+            }
+        }
+
+        var hostUsers = await _db.Users
+            .AsNoTracking()
+            .Where(u => hostGuids.Contains(u.Id) || hostUsernames.Contains(u.Username))
+            .Select(u => new { u.Id, u.Username, u.FullName })
+            .ToListAsync(cancellationToken);
+
+        var hostMapById = hostUsers.ToDictionary(u => u.Id.ToString().ToLower(), u => u);
+        var hostMapByUsername = hostUsers.ToDictionary(u => u.Username.ToLower(), u => u);
+
+        foreach (var dto in dtos)
+        {
+            if (string.IsNullOrEmpty(dto.HostIdentity))
+                continue;
+
+            var lookupKey = dto.HostIdentity.ToLower();
+            if (hostMapById.TryGetValue(lookupKey, out var userObj) || hostMapByUsername.TryGetValue(lookupKey, out userObj))
+            {
+                dto.HostName = !string.IsNullOrWhiteSpace(userObj.FullName) ? userObj.FullName : userObj.Username;
+                dto.HostIdentity = userObj.Username;
+            }
+        }
     }
 }
