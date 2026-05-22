@@ -5,6 +5,7 @@ public class MeetingListItemDto
     public Guid Id { get; set; }
     public string Title { get; set; } = string.Empty;
     public string HostName { get; set; } = string.Empty;
+    public string? Location { get; set; }
     public string HostIdentity { get; set; } = string.Empty;
     public bool CanManagePoll { get; set; }
 

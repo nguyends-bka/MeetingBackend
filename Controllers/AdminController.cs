@@ -241,6 +241,7 @@ public class AdminController : ControllerBase
             MeetingCode = meeting.MeetingCode,
             Passcode = meeting.Passcode,
             RoomName = meeting.RoomName,
+            Location = meeting.Location,
             CreatedAt = meeting.CreatedAt,
             StartedAt = meeting.StartedAt,
             EndedAt = meeting.EndedAt,

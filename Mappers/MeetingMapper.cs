@@ -17,7 +17,8 @@ public static class MeetingMapper
             Passcode = meeting.Passcode,
             CreatedAt = meeting.CreatedAt,
             StartedAt = meeting.StartedAt,
-            EndedAt = meeting.EndedAt
+            EndedAt = meeting.EndedAt,
+            Location = meeting.Location
         };
     }
 

@@ -10,6 +10,8 @@ public class Meeting
 
     public string HostIdentity { get; set; } = string.Empty;  
 
+    public string? Location { get; set; }
+
     public string RoomName { get; set; } = Guid.NewGuid().ToString();
 
     public string MeetingCode { get; set; } = string.Empty; // Code ngắn để share (6-8 ký tự)

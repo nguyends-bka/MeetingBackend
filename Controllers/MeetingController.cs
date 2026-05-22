@@ -674,7 +674,8 @@ public class MeetingController : ControllerBase
                         ? (participant.LeftAt.Value - participant.JoinedAt).TotalMinutes
                         : null,
                     MeetingCode = meeting.MeetingCode,
-                    HostName = meeting.HostName
+                    HostName = meeting.HostName,
+                    Location = meeting.Location
                 }
             )
             .OrderByDescending(h => h.JoinedAt)

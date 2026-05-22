@@ -9,6 +9,7 @@ public class AdminMeetingDto
     public string MeetingCode { get; set; } = string.Empty;
     public string Passcode { get; set; } = string.Empty;
     public string RoomName { get; set; } = string.Empty;
+    public string? Location { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? StartedAt { get; set; }
     public DateTime? EndedAt { get; set; }

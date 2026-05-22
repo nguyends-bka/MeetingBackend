@@ -4,6 +4,7 @@ public class CreateMeetingRequestDto
 {
     public string Title { get; set; } = string.Empty;
     public string HostName { get; set; } = string.Empty;
+    public string? Location { get; set; }
     public string? Passcode { get; set; }
     /// <summary>
     /// Thời gian bắt đầu dự kiến (unix milliseconds UTC). Nếu không gửi, dùng thời điểm hiện tại.

@@ -56,6 +56,7 @@ public class MeetingApplicationService : IMeetingApplicationService
             Title = request.Title,
             HostName = request.HostName,
             HostIdentity = userId,
+            Location = request.Location,
             RoomName = Guid.NewGuid().ToString(),
             MeetingCode = meetingCode,
             Passcode = passcode,

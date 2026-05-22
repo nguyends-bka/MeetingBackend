@@ -11,4 +11,5 @@ public class MyHistoryItemDto
     public double? Duration { get; set; }
     public string MeetingCode { get; set; } = string.Empty;
     public string HostName { get; set; } = string.Empty;
+    public string? Location { get; set; }
 }
