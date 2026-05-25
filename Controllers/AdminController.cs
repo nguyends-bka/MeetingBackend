@@ -246,7 +246,9 @@ public class AdminController : ControllerBase
             StartedAt = meeting.StartedAt,
             EndedAt = meeting.EndedAt,
             ParticipantCount = participantCounts.TryGetValue(meeting.Id, out var pc) ? pc : 0,
-            ActiveParticipantCount = activeCounts.TryGetValue(meeting.Id, out var ac) ? ac : 0
+            ActiveParticipantCount = activeCounts.TryGetValue(meeting.Id, out var ac) ? ac : 0,
+            Status = meeting.Status.ToString().ToLower(),
+            EstimatedEndAt = meeting.EstimatedEndAt
         }).ToList();
 
         // Enrich Host Info

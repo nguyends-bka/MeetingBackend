@@ -1,5 +1,14 @@
 namespace MeetingBackend.Entities;
 
+public enum MeetingStatus
+{
+    Upcoming = 0,
+    Live = 1,
+    Ended = 2,
+    NoShow = 3,
+    Cancelled = 4
+}
+
 public class Meeting
 {
     public Guid Id { get; set; }
@@ -25,4 +34,9 @@ public class Meeting
 
     /// <summary>Thời điểm kết thúc thực tế (host kết thúc cuộc họp).</summary>
     public DateTime? EndedAt { get; set; }
+
+    public MeetingStatus Status { get; set; } = MeetingStatus.Upcoming;
+
+    public DateTime? EstimatedEndAt { get; set; }
 }
+

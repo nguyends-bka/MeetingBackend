@@ -17,4 +17,6 @@ public class MeetingListItemDto
     public DateTime? StartedAt { get; set; }
     public DateTime? EndedAt { get; set; }
     public int ActiveParticipantCount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime? EstimatedEndAt { get; set; }
 }

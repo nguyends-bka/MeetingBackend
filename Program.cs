@@ -103,6 +103,7 @@ builder.Services.AddHostedService<RecordingFileWatcherService>();
 builder.Services.AddHostedService<DatabaseMigrationHostedService>();
 builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();
 builder.Services.AddHostedService<BackgroundTaskService>();
+builder.Services.AddHostedService<MeetingCleanupWorker>();
 
 builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp, client) =>
 {

@@ -61,7 +61,9 @@ public class MeetingApplicationService : IMeetingApplicationService
             MeetingCode = meetingCode,
             Passcode = passcode,
             CreatedAt = startAtUtc,
-            StartedAt = estimatedEndUtc
+            StartedAt = null,
+            Status = Entities.MeetingStatus.Upcoming,
+            EstimatedEndAt = estimatedEndUtc
         };
 
         _db.Meetings.Add(meeting);
@@ -398,6 +400,9 @@ public class MeetingApplicationService : IMeetingApplicationService
         if (meeting.EndedAt.HasValue)
             return MeetingAppResult<MeetingListItemDto>.BadRequest("Cuộc họp đã kết thúc, không thể chỉnh sửa");
 
+        if (meeting.Status != Entities.MeetingStatus.Upcoming)
+            return MeetingAppResult<MeetingListItemDto>.BadRequest("Chỉ có thể chỉnh sửa cuộc họp sắp diễn ra");
+
         var activeCount = await _db.MeetingParticipants
             .Where(p => p.MeetingId == meetingId && p.LeftAt == null)
             .CountAsync(cancellationToken);
@@ -413,7 +418,7 @@ public class MeetingApplicationService : IMeetingApplicationService
 
         meeting.Title = request.Title.Trim();
         meeting.CreatedAt = startAtUtc;
-        meeting.StartedAt = estimatedEndUtc;
+        meeting.EstimatedEndAt = estimatedEndUtc;
 
         await _db.SaveChangesAsync(cancellationToken);
 
@@ -485,6 +490,7 @@ public class MeetingApplicationService : IMeetingApplicationService
         var now = DateTime.UtcNow;
         meeting.StartedAt ??= now;
         meeting.EndedAt = now;
+        meeting.Status = Entities.MeetingStatus.Ended;
 
         var activeRecordings = await _db.MeetingRecordings
             .Where(r => r.MeetingId == meetingId
@@ -592,9 +598,12 @@ public class MeetingApplicationService : IMeetingApplicationService
             return existingActive;
         }
 
-        if (meeting.EndedAt.HasValue)
+        if (meeting.EndedAt.HasValue || 
+            meeting.Status == Entities.MeetingStatus.Ended || 
+            meeting.Status == Entities.MeetingStatus.Cancelled || 
+            meeting.Status == Entities.MeetingStatus.NoShow)
         {
-            throw new UnauthorizedAccessException("Meeting has ended");
+            throw new UnauthorizedAccessException("Cuộc họp đã kết thúc hoặc không khả dụng");
         }
 
         var participant = new MeetingParticipant
@@ -607,7 +616,12 @@ public class MeetingApplicationService : IMeetingApplicationService
         };
         _db.MeetingParticipants.Add(participant);
 
-        if (!meeting.StartedAt.HasValue)
+        if (meeting.Status == Entities.MeetingStatus.Upcoming)
+        {
+            meeting.Status = Entities.MeetingStatus.Live;
+            meeting.StartedAt = participant.JoinedAt;
+        }
+        else if (!meeting.StartedAt.HasValue)
         {
             meeting.StartedAt = participant.JoinedAt;
         }
@@ -662,5 +676,26 @@ public class MeetingApplicationService : IMeetingApplicationService
                 dto.HostIdentity = userObj.Username;
             }
         }
+    }
+
+    public async Task<MeetingAppResult<object>> CancelMeetingAsync(CurrentUserContext user, Guid meetingId, CancellationToken cancellationToken = default)
+    {
+        var userId = user.UserId;
+        var username = user.Username ?? string.Empty;
+
+        var meeting = await _db.Meetings.FirstOrDefaultAsync(m => m.Id == meetingId, cancellationToken);
+        if (meeting == null)
+            return MeetingAppResult<object>.NotFound("Meeting not found");
+
+        if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId ?? string.Empty, username, cancellationToken))
+            return MeetingAppResult<object>.Unauthorized("Only meeting host can cancel meeting");
+
+        if (meeting.Status != Entities.MeetingStatus.Upcoming)
+            return MeetingAppResult<object>.BadRequest("Chỉ có thể hủy cuộc họp sắp diễn ra");
+
+        meeting.Status = Entities.MeetingStatus.Cancelled;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        return MeetingAppResult<object>.Ok(new { message = "Hủy cuộc họp thành công" });
     }
 }

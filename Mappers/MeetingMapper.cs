@@ -18,7 +18,9 @@ public static class MeetingMapper
             CreatedAt = meeting.CreatedAt,
             StartedAt = meeting.StartedAt,
             EndedAt = meeting.EndedAt,
-            Location = meeting.Location
+            Location = meeting.Location,
+            Status = meeting.Status.ToString().ToLower(),
+            EstimatedEndAt = meeting.EstimatedEndAt
         };
     }
 

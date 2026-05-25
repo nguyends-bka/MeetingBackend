@@ -13,6 +13,7 @@ public interface IMeetingApplicationService
     Task<MeetingAppResult<MeetingListItemDto>> UpdateMeetingAsync(CurrentUserContext user, Guid meetingId, UpdateMeetingRequestDto request, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<LeaveMeetingResponseDto>> LeaveAsync(CurrentUserContext user, LeaveMeetingRequestDto request, CancellationToken cancellationToken = default);
     Task<MeetingAppResult<object>> EndMeetingAsync(CurrentUserContext user, Guid meetingId, CancellationToken cancellationToken = default);
+    Task<MeetingAppResult<object>> CancelMeetingAsync(CurrentUserContext user, Guid meetingId, CancellationToken cancellationToken = default);
 }
 
 public sealed class CurrentUserContext

@@ -816,4 +816,15 @@ public class MeetingController : ControllerBase
             return StatusCode(500, new { error = ex.Message });
         }
     }
+
+    // ==========================
+    // HOST HỦY CUỘC HỌP
+    // ==========================
+    [HttpPost("{meetingId:guid}/cancel")]
+    [Authorize]
+    public async Task<IActionResult> CancelMeeting(Guid meetingId)
+    {
+        var result = await _meetingApplicationService.CancelMeetingAsync(CurrentUser(), meetingId, HttpContext.RequestAborted);
+        return ToActionResult(result);
+    }
 }
