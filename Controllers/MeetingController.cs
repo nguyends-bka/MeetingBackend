@@ -259,6 +259,11 @@ public class MeetingController : ControllerBase
                 u => u.Username.ToLower(),
                 u => string.IsNullOrWhiteSpace(u.FullName) ? u.Username : u.FullName!);
 
+        var userLangs = await _db.UserLanguages
+            .AsNoTracking()
+            .Where(ul => namesToResolve.Contains(ul.User.Username.ToLower()) && ul.IsPrimary)
+            .ToDictionaryAsync(ul => ul.User.Username.ToLower(), ul => ul.LanguageCode);
+
         var list = inviteeRows.Select(row =>
         {
             var un = row.Username.Trim().ToLower();
@@ -266,6 +271,7 @@ public class MeetingController : ControllerBase
             {
                 Username = row.Username,
                 FullName = userMap.TryGetValue(un, out var fn) ? fn : row.Username,
+                PrimaryLanguage = userLangs.TryGetValue(un, out var lang) ? lang : null
             };
         }).ToList();
 
@@ -331,10 +337,17 @@ public class MeetingController : ControllerBase
             username,
             HttpContext.RequestAborted);
 
+        var primaryLang = await _db.UserLanguages
+            .AsNoTracking()
+            .Where(ul => ul.UserId == target.Id && ul.IsPrimary)
+            .Select(ul => ul.LanguageCode)
+            .FirstOrDefaultAsync();
+
         return Ok(new MeetingInviteeDto
         {
             Username = target.Username,
             FullName = string.IsNullOrWhiteSpace(target.FullName) ? target.Username : target.FullName!.Trim(),
+            PrimaryLanguage = primaryLang,
         });
     }
 

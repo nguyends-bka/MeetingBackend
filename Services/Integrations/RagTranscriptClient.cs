@@ -9,7 +9,8 @@ namespace MeetingBackend.Services.Integrations;
 public class RagTranscriptClient
 {
     //private const string RagTranscriptUrl = "https://rag.soictlab.com/transcript";
-    private const string RagBaseUrl = "https://rag.soictlab.com/transcript";
+    // private const string RagBaseUrl = "https://rag.soictlab.com/transcript";
+    private const string RagBaseUrl = "http://bkmeeting.soict.io:18000/transcript";
     // private const string RagTranscriptUrl = "http://localhost:3001";
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<RagTranscriptClient> _logger;

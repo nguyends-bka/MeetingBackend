@@ -281,15 +281,24 @@ public class UserController : ControllerBase
         // ── Cập nhật UserCountries (replace hoàn toàn nếu được gửi) ──────────
         if (request.CountryCodes != null)
         {
-            var existing = await _db.UserCountries
+            var existingCountries = await _db.UserCountries
                 .Where(uc => uc.UserId == user.Id)
                 .ToListAsync();
-            _db.UserCountries.RemoveRange(existing);
 
-            var normalizedCodes = request.CountryCodes.Select(c => c.Trim().ToUpper()).Distinct();
-            foreach (var code in normalizedCodes)
+            var newCodes = request.CountryCodes.Select(c => c.Trim().ToUpper()).Distinct().ToHashSet();
+
+            // 1. Xóa các quốc gia không còn trong danh sách mới
+            var toDelete = existingCountries.Where(ec => !newCodes.Contains(ec.CountryCode)).ToList();
+            _db.UserCountries.RemoveRange(toDelete);
+
+            // 2. Thêm mới các quốc gia chưa tồn tại
+            var existingCodes = existingCountries.Select(ec => ec.CountryCode).ToHashSet();
+            foreach (var code in newCodes)
             {
-                _db.UserCountries.Add(new UserCountry { UserId = user.Id, CountryCode = code });
+                if (!existingCodes.Contains(code))
+                {
+                    _db.UserCountries.Add(new UserCountry { UserId = user.Id, CountryCode = code });
+                }
             }
         }
 
@@ -299,16 +308,35 @@ public class UserController : ControllerBase
             var existingLangs = await _db.UserLanguages
                 .Where(ul => ul.UserId == user.Id)
                 .ToListAsync();
-            _db.UserLanguages.RemoveRange(existingLangs);
 
-            foreach (var lang in request.Languages)
+            var newLangs = request.Languages.ToList();
+            var newCodes = newLangs.Select(l => l.Code.Trim().ToLower()).ToHashSet();
+
+            // 1. Xóa các ngôn ngữ không còn trong danh sách mới
+            var toDelete = existingLangs.Where(el => !newCodes.Contains(el.LanguageCode)).ToList();
+            _db.UserLanguages.RemoveRange(toDelete);
+
+            // 2. Cập nhật hoặc thêm mới các ngôn ngữ
+            foreach (var lang in newLangs)
             {
-                _db.UserLanguages.Add(new UserLanguage
+                var code = lang.Code.Trim().ToLower();
+                var existing = existingLangs.FirstOrDefault(el => el.LanguageCode == code);
+
+                if (existing != null)
                 {
-                    UserId = user.Id,
-                    LanguageCode = lang.Code.Trim().ToLower(),
-                    IsPrimary = lang.IsPrimary
-                });
+                    // Cập nhật trường IsPrimary của bản ghi hiện có
+                    existing.IsPrimary = lang.IsPrimary;
+                }
+                else
+                {
+                    // Thêm bản ghi mới
+                    _db.UserLanguages.Add(new UserLanguage
+                    {
+                        UserId = user.Id,
+                        LanguageCode = code,
+                        IsPrimary = lang.IsPrimary
+                    });
+                }
             }
         }
 
@@ -487,5 +515,73 @@ public class UserController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    [HttpGet("lookup-languages")]
+    public async Task<IActionResult> LookupLanguages([FromQuery] string usernames)
+    {
+        if (string.IsNullOrWhiteSpace(usernames))
+            return Ok(new Dictionary<string, UserLanguagesLookupDto>());
+
+        var cleanNames = usernames
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim().ToLower())
+            .Distinct()
+            .ToList();
+
+        var guids = new List<Guid>();
+        var nameList = new List<string>();
+
+        foreach (var item in cleanNames)
+        {
+            if (Guid.TryParse(item, out var guid))
+            {
+                guids.Add(guid);
+            }
+            else
+            {
+                nameList.Add(item);
+            }
+        }
+
+        // Lấy tất cả các ngôn ngữ của người dùng khớp theo Username hoặc UserId
+        var userLangsList = await (from ul in _db.UserLanguages
+                                   join u in _db.Users on ul.UserId equals u.Id
+                                   where nameList.Contains(u.Username.ToLower()) || guids.Contains(ul.UserId)
+                                   select new
+                                   {
+                                       Username = u.Username.ToLower(),
+                                       UserIdStr = u.Id.ToString().ToLower(),
+                                       ul.LanguageCode,
+                                       ul.IsPrimary
+                                   })
+                                   .ToListAsync();
+
+        var resultDict = new Dictionary<string, UserLanguagesLookupDto>();
+
+        // Gom nhóm theo UserId
+        var groupedByUserId = userLangsList.GroupBy(x => x.UserIdStr);
+        foreach (var group in groupedByUserId)
+        {
+            var userIdStr = group.Key;
+            var username = group.First().Username;
+
+            var preferred = group.FirstOrDefault(x => x.IsPrimary)?.LanguageCode 
+                            ?? group.FirstOrDefault()?.LanguageCode 
+                            ?? "vi";
+            var allLangs = group.Select(x => x.LanguageCode).Distinct().ToList();
+
+            var dto = new UserLanguagesLookupDto
+            {
+                PreferredLanguage = preferred,
+                Languages = allLangs
+            };
+
+            // Lưu cả key là username và key là UserIdStr để client có thể tìm thấy theo cách nào cũng được
+            resultDict[userIdStr] = dto;
+            resultDict[username] = dto;
+        }
+
+        return Ok(resultDict);
     }
 }

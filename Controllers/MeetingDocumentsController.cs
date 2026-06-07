@@ -21,7 +21,8 @@ public class MeetingDocumentsController : ControllerBase
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBackgroundTaskQueue _taskQueue;
     private readonly string _docsRoot;
-    private const string RagEmbedFileUrl = "https://rag.soictlab.com/embed/file";
+    // private const string RagEmbedFileUrl = "https://rag.soictlab.com/embed/file";
+    private const string RagEmbedFileUrl = "http://bkmeeting.soict.io:18000/embed/file";
 
     public MeetingDocumentsController(
         AppDbContext db,
