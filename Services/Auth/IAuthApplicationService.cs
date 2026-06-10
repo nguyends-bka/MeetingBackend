@@ -7,6 +7,7 @@ public interface IAuthApplicationService
     Task<AuthActionResult> RegisterAsync(RegisterRequestDto req, CancellationToken cancellationToken = default);
     Task<AuthActionResult<LoginResponseDto>> LoginAsync(LoginRequestDto req, CancellationToken cancellationToken = default);
     Task<AuthActionResult<LoginResponseDto>> LoginWithFaceAsync(FaceLoginRequestDto req, CancellationToken cancellationToken = default);
+    Task<AuthActionResult<LoginResponseDto>> RefreshSessionAsync(Guid userId, CancellationToken cancellationToken = default);
 }
 
 public enum AuthActionStatus

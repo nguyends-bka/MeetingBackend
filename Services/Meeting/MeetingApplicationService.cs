@@ -3,6 +3,8 @@ using MeetingBackend.DTOs.Meeting;
 using MeetingBackend.Entities;
 using MeetingBackend.Mappers;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace MeetingBackend.Services.Meeting;
 
@@ -13,19 +15,25 @@ public class MeetingApplicationService : IMeetingApplicationService
     private readonly LiveKitEgressService _egress;
     private readonly IConfiguration _config;
     private readonly MeetingCodeService _codeService;
+    private readonly IBackgroundTaskQueue _queue;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public MeetingApplicationService(
         AppDbContext db,
         LiveKitTokenService liveKit,
         LiveKitEgressService egress,
         IConfiguration config,
-        MeetingCodeService codeService)
+        MeetingCodeService codeService,
+        IBackgroundTaskQueue queue,
+        IServiceScopeFactory serviceScopeFactory)
     {
         _db = db;
         _liveKit = liveKit;
         _egress = egress;
         _config = config;
         _codeService = codeService;
+        _queue = queue;
+        _serviceScopeFactory = serviceScopeFactory;
     }
 
     public async Task<MeetingAppResult<CreateMeetingResponseDto>> CreateAsync(CurrentUserContext user, CreateMeetingRequestDto request, CancellationToken cancellationToken = default)
@@ -534,6 +542,69 @@ public class MeetingApplicationService : IMeetingApplicationService
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+
+        // Đẩy tác vụ tóm tắt AI vào BackgroundTaskQueue chạy ngầm
+        _queue.QueueBackgroundWorkItem(async token =>
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var llmClient = scope.ServiceProvider.GetRequiredService<MeetingBackend.Services.Integrations.LlmMinutesSummaryClient>();
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<MeetingApplicationService>>();
+
+            // 1. Tạo hoặc cập nhật bản ghi tóm tắt trong DB với trạng thái Processing
+            var summary = await dbContext.MeetingMinutesSummaries.FirstOrDefaultAsync(s => s.MeetingId == meetingId, token);
+            if (summary == null)
+            {
+                summary = new MeetingMinutesSummary
+                {
+                    MeetingId = meetingId,
+                    Status = MinutesSummaryStatus.Processing,
+                    CreatedAtUtc = DateTime.UtcNow,
+                    UpdatedAtUtc = DateTime.UtcNow
+                };
+                dbContext.MeetingMinutesSummaries.Add(summary);
+            }
+            else
+            {
+                summary.Status = MinutesSummaryStatus.Processing;
+                summary.SummaryText = string.Empty;
+                summary.ErrorMessage = null;
+                summary.UpdatedAtUtc = DateTime.UtcNow;
+            }
+            await dbContext.SaveChangesAsync(token);
+
+            try
+            {
+                // 2. Gọi LLM để sinh tóm tắt cuộc họp
+                var summaryResult = await llmClient.GenerateSummaryAsync(meetingId, dbContext, token);
+                
+                // 3. Cập nhật kết quả hoặc mã Job ID vào DB
+                if (summaryResult.IsCompleted)
+                {
+                    summary.SummaryText = summaryResult.SummaryText ?? string.Empty;
+                    summary.Status = MinutesSummaryStatus.Success;
+                    logger.LogInformation("[AI Summary] Tạo tóm tắt AI thành công (Gemini Mode) cho cuộc họp {MeetingId}", meetingId);
+                }
+                else
+                {
+                    summary.LlmJobId = summaryResult.JobId;
+                    summary.Status = MinutesSummaryStatus.Processing;
+                    logger.LogInformation("[AI Summary] Đã gửi yêu cầu tóm tắt AI thành công (Webhook Mode) cho cuộc họp {MeetingId}. JobId: {JobId}", meetingId, summaryResult.JobId);
+                }
+                summary.UpdatedAtUtc = DateTime.UtcNow;
+                await dbContext.SaveChangesAsync(token);
+            }
+            catch (Exception ex)
+            {
+                // 4. Lưu trạng thái lỗi nếu gặp sự cố
+                summary.Status = MinutesSummaryStatus.Failed;
+                summary.ErrorMessage = ex.Message;
+                summary.UpdatedAtUtc = DateTime.UtcNow;
+                await dbContext.SaveChangesAsync(token);
+                logger.LogError(ex, "[AI Summary] Lỗi trong quá trình sinh tóm tắt AI cho cuộc họp {MeetingId}", meetingId);
+            }
+        });
+
         return MeetingAppResult<object>.Ok(new { message = "Meeting ended", endedAt = meeting.EndedAt });
     }
 

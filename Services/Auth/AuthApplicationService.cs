@@ -134,4 +134,20 @@ public class AuthApplicationService : IAuthApplicationService
 
         return AuthActionResult<LoginResponseDto>.Ok(response);
     }
+
+    public async Task<AuthActionResult<LoginResponseDto>> RefreshSessionAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        var user = await _db.Users.FindAsync(new object[] { userId }, cancellationToken);
+        if (user == null)
+            return AuthActionResult<LoginResponseDto>.Unauthorized("Người dùng không tồn tại");
+
+        var token = _jwt.CreateToken(user);
+        var response = new LoginResponseDto
+        {
+            Token = token,
+            User = UserMapper.ToAuthUserDto(user)
+        };
+
+        return AuthActionResult<LoginResponseDto>.Ok(response);
+    }
 }

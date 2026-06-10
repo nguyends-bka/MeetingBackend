@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using MeetingBackend.DTOs.Auth;
 using MeetingBackend.Services.Auth;
 
@@ -47,10 +48,27 @@ public class AuthController : ControllerBase
         var result = await _authApplicationService.LoginWithFaceAsync(req, HttpContext.RequestAborted);
         return result.Status switch
         {
+            _ => BadRequest(new { message = "Yeu cau khong hop le" }),
+        };
+    }
+
+    [Authorize]
+    [HttpPost("refresh-session")]
+    public async Task<IActionResult> RefreshSession()
+    {
+        var userIdVal = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdVal) || !Guid.TryParse(userIdVal, out var userId))
+        {
+            return Unauthorized(new { message = "Token không hợp lệ" });
+        }
+
+        var result = await _authApplicationService.RefreshSessionAsync(userId, HttpContext.RequestAborted);
+        return result.Status switch
+        {
             AuthActionStatus.Ok => Ok(result.Data),
             AuthActionStatus.BadRequest => BadRequest(new { message = result.Message }),
             AuthActionStatus.Unauthorized => Unauthorized(new { message = result.Message }),
-            _ => BadRequest(new { message = "Yeu cau khong hop le" }),
+            _ => BadRequest(new { message = "Yêu cầu không hợp lệ" }),
         };
     }
 }

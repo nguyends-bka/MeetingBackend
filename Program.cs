@@ -98,7 +98,13 @@ builder.Services.AddHttpClient("RagTranscript", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(30);
 });
+builder.Services.AddHttpClient("LlmSummary", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(15);
+});
 builder.Services.AddScoped<MeetingBackend.Services.Integrations.RagTranscriptClient>();
+builder.Services.AddScoped<MeetingBackend.Services.Integrations.LlmMinutesSummaryClient>();
+
 builder.Services.AddHostedService<RecordingFileWatcherService>();
 builder.Services.AddHostedService<DatabaseMigrationHostedService>();
 builder.Services.AddSingleton<IBackgroundTaskQueue, BackgroundTaskQueue>();

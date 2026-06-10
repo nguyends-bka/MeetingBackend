@@ -3,6 +3,7 @@ using System;
 using MeetingBackend.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace MeetingBackend.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260609074414_AddMeetingMinutesSummary")]
+    partial class AddMeetingMinutesSummary
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -253,25 +256,10 @@ namespace MeetingBackend.Migrations
                     b.Property<Guid>("MeetingId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("ActionItems")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("Discussions")
-                        .IsRequired()
-                        .HasColumnType("text");
-
                     b.Property<string>("ErrorMessage")
-                        .HasColumnType("text");
-
-                    b.Property<string>("LlmJobId")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Overview")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<int>("Status")

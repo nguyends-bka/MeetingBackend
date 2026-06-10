@@ -24,6 +24,8 @@ public class AppDbContext : DbContext
     public DbSet<MeetingInvitee> MeetingInvitees => Set<MeetingInvitee>();
     public DbSet<MeetingCoHost> MeetingCoHosts => Set<MeetingCoHost>();
     public DbSet<MeetingNotification> MeetingNotifications => Set<MeetingNotification>();
+    public DbSet<MeetingMinutesSummary> MeetingMinutesSummaries => Set<MeetingMinutesSummary>();
+
 
     // ── Danh mục Quốc gia / Ngôn ngữ ────────────────────────────────────────
     public DbSet<Country> Countries => Set<Country>();
@@ -104,6 +106,15 @@ public class AppDbContext : DbContext
             e.HasOne(x => x.Meeting)
                 .WithMany()
                 .HasForeignKey(x => x.MeetingId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MeetingMinutesSummary>(e =>
+        {
+            e.HasKey(x => x.MeetingId);
+            e.HasOne(x => x.Meeting)
+                .WithOne()
+                .HasForeignKey<MeetingMinutesSummary>(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
