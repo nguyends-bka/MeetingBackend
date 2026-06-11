@@ -196,7 +196,7 @@ public class MeetingDocumentsController : ControllerBase
             || await HasParticipantAsync(meetingId, userId)
             || await IsHostAsync(meeting, userId, username)
             || await IsInviteeAsync(meetingId, username);
-        if (!canView) return Unauthorized("Only meeting members can view meeting documents");
+        if (!canView) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting members can view meeting documents");
 
         var isHostOrCoHost = await IsHostAsync(meeting, userId, username);
 
@@ -235,7 +235,7 @@ public class MeetingDocumentsController : ControllerBase
         if (meeting == null) return NotFound("Meeting not found");
 
         var isHost = await IsHostAsync(meeting, userId, username);
-        if (!isHost) return Unauthorized("Only host can upload documents");
+        if (!isHost) return StatusCode(StatusCodes.Status403Forbidden, "Only host can upload documents");
         if (meeting.EndedAt.HasValue) return BadRequest("Meeting has ended");
 
         var file = request.File;
@@ -319,7 +319,7 @@ public class MeetingDocumentsController : ControllerBase
         if (meeting == null) return NotFound("Meeting not found");
 
         var isHost = await IsHostAsync(meeting, userId, username);
-        if (!isHost) return Unauthorized("Only host can change document visibility");
+        if (!isHost) return StatusCode(StatusCodes.Status403Forbidden, "Only host can change document visibility");
 
         var doc = await _db.MeetingDocuments.FirstOrDefaultAsync(d =>
             d.MeetingId == meetingId && d.Id == documentId);
@@ -358,7 +358,7 @@ public class MeetingDocumentsController : ControllerBase
             || await HasParticipantAsync(meetingId, userId)
             || await IsHostAsync(meeting, userId, username)
             || await IsInviteeAsync(meetingId, username);
-        if (!canView) return Unauthorized("Only meeting members can download documents");
+        if (!canView) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting members can download documents");
 
         var isHostOrCoHost = await IsHostAsync(meeting, userId, username);
 
@@ -394,7 +394,7 @@ public class MeetingDocumentsController : ControllerBase
         if (meeting == null) return NotFound("Meeting not found");
 
         var isHost = await IsHostAsync(meeting, userId, username);
-        if (!isHost) return Unauthorized("Only host can delete documents");
+        if (!isHost) return StatusCode(StatusCodes.Status403Forbidden, "Only host can delete documents");
 
         var doc = await _db.MeetingDocuments.FirstOrDefaultAsync(d =>
             d.MeetingId == meetingId && d.Id == documentId);

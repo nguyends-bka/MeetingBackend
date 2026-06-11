@@ -93,7 +93,7 @@ public class MeetingPollsController : ControllerBase
             return Unauthorized();
 
         if (!await CanViewPollsAsync(meetingId, userId, role, username))
-            return Unauthorized("Only meeting participants, host, or Admin can list polls");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants, host, or Admin can list polls");
 
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)
@@ -137,7 +137,7 @@ public class MeetingPollsController : ControllerBase
             return NotFound("Meeting not found");
 
         if (!await CanManagePollsAsync(meetingId, userId.Trim(), username))
-            return Unauthorized("Only meeting host or poll manager can create polls");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or poll manager can create polls");
 
         if (string.IsNullOrWhiteSpace(dto.Title))
             return BadRequest("Title is required");
@@ -204,7 +204,7 @@ public class MeetingPollsController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
         if (!await CanManagePollsAsync(meetingId, userId.Trim(), username))
-            return Unauthorized("Only meeting host or poll manager can edit draft polls");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or poll manager can edit draft polls");
 
         var poll = await _db.MeetingPolls
             .Include(p => p.Votes)
@@ -239,7 +239,7 @@ public class MeetingPollsController : ControllerBase
             return Unauthorized();
 
         if (!await CanManagePollsAsync(meetingId, userId.Trim(), username))
-            return Unauthorized("Only meeting host or poll manager can delete draft polls");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or poll manager can delete draft polls");
 
         var poll = await _db.MeetingPolls
             .FirstOrDefaultAsync(p => p.MeetingId == meetingId && p.PollId == pollId);
@@ -267,7 +267,7 @@ public class MeetingPollsController : ControllerBase
             return BadRequest("PublishedBy must match authenticated user");
 
         if (!await CanManagePollsAsync(meetingId, userId, username))
-            return Unauthorized("Only meeting host or poll manager can publish polls");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or poll manager can publish polls");
 
         var poll = await _db.MeetingPolls
             .Include(p => p.Votes)
@@ -413,7 +413,7 @@ public class MeetingPollsController : ControllerBase
 
         var canClose = await CanManagePollsAsync(meetingId, userId, username);
         if (!canClose)
-            return Unauthorized("Only meeting host or poll manager can close");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or poll manager can close");
 
         poll.Status = "closed";
         poll.ClosedBy = dto.ClosedBy;
@@ -433,7 +433,7 @@ public class MeetingPollsController : ControllerBase
             return Unauthorized();
 
         if (!await CanViewPollsAsync(meetingId, userId, role, username))
-            return Unauthorized();
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants can view poll managers");
 
         var managers = await _db.MeetingPollManagers
             .AsNoTracking()
@@ -491,7 +491,7 @@ public class MeetingPollsController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
         if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host can add poll managers");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host can add poll managers");
 
         var targetUsername = dto.Username?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(targetUsername))
@@ -530,7 +530,7 @@ public class MeetingPollsController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
         if (!await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, actorUsername))
-            return Unauthorized("Only meeting host can remove poll managers");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host can remove poll managers");
 
         var target = (username ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(target))

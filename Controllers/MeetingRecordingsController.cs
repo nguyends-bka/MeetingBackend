@@ -233,7 +233,7 @@ public class MeetingRecordingsController : ControllerBase
 
         var canView = await CanViewAsync(meetingId, userId, username, role);
 
-        if (!canView) return Unauthorized("Only meeting members can view recordings");
+        if (!canView) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting members can view recordings");
 
         var items = await _db.Set<MeetingRecording>()
             .Where(r => r.MeetingId == meetingId)
@@ -251,7 +251,7 @@ public class MeetingRecordingsController : ControllerBase
         var role = GetUserRole();
 
         var canView = await CanViewAsync(meetingId, userId, username, role);
-        if (!canView) return Unauthorized("Only meeting members can view recordings");
+        if (!canView) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting members can view recordings");
 
         var recording = await _db.Set<MeetingRecording>().AsNoTracking().FirstOrDefaultAsync(r =>
             r.MeetingId == meetingId && r.Id == recordingId);
@@ -277,7 +277,7 @@ public class MeetingRecordingsController : ControllerBase
         if (meeting == null) return NotFound("Meeting not found");
 
         var isHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username);
-        if (!isHost) return Unauthorized("Only meeting host/co-host can start recording");
+        if (!isHost) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host/co-host can start recording");
 
         if (meeting.EndedAt.HasValue)
             return BadRequest("Meeting has ended");
@@ -341,7 +341,7 @@ public class MeetingRecordingsController : ControllerBase
         if (meeting == null) return NotFound("Meeting not found");
 
         var isHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username);
-        if (!isHost) return Unauthorized("Only meeting host/co-host can stop recording");
+        if (!isHost) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host/co-host can stop recording");
 
         var recording = await _db.Set<MeetingRecording>().FirstOrDefaultAsync(r =>
             r.MeetingId == meetingId && r.Id == recordingId);
@@ -408,7 +408,7 @@ public class MeetingRecordingsController : ControllerBase
         if (meeting == null) return NotFound("Meeting not found");
 
         var isHost = await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username);
-        if (!isHost) return Unauthorized("Only meeting host/co-host can delete recording");
+        if (!isHost) return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host/co-host can delete recording");
 
         var recording = await _db.Set<MeetingRecording>().FirstOrDefaultAsync(r =>
             r.MeetingId == meetingId && r.Id == recordingId);

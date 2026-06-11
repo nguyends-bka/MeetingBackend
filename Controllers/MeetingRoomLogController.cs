@@ -53,7 +53,7 @@ public class MeetingRoomLogController : ControllerBase
         var role = User.FindFirstValue(ClaimTypes.Role);
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
         if (!await CanAccessMeetingAsync(meetingId, userId, username, role))
-            return Unauthorized("Only meeting participants, host, or Admin can view room logs");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants, host, or Admin can view room logs");
 
         var chatsRaw = await _db.MeetingChatMessages.AsNoTracking()
             .Where(x => x.MeetingId == meetingId)
@@ -122,7 +122,7 @@ public class MeetingRoomLogController : ControllerBase
         var role = User.FindFirstValue(ClaimTypes.Role);
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
         if (!await CanAccessMeetingAsync(meetingId, userId, username, role))
-            return Unauthorized();
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants can add chat messages");
 
         var senderIdentity = dto.SenderIdentity?.Trim() ?? string.Empty;
         var message = dto.Message?.Trim() ?? string.Empty;
@@ -162,7 +162,7 @@ public class MeetingRoomLogController : ControllerBase
         var role = User.FindFirstValue(ClaimTypes.Role);
         if (string.IsNullOrEmpty(userId)) return Unauthorized();
         if (!await CanAccessMeetingAsync(meetingId, userId, username, role))
-            return Unauthorized();
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants can add transcript entries");
 
         var text = dto.Text?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(text)) return BadRequest("Text is required");

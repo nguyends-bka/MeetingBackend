@@ -65,7 +65,7 @@ public class MeetingMinutesController : ControllerBase
             return Unauthorized();
 
         if (!await CanAccessMeetingAsync(meetingId, userId, username, role))
-            return Unauthorized("Only meeting participants, host, or Admin can view minutes");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants, host, or Admin can view minutes");
 
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)
@@ -266,7 +266,7 @@ public class MeetingMinutesController : ControllerBase
             return Unauthorized();
 
         if (!await CanAccessMeetingAsync(meetingId, userId, username, role))
-            return Unauthorized("Only meeting participants, host, or Admin can check minutes summary");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants, host, or Admin can check minutes summary");
 
         var summary = await _db.MeetingMinutesSummaries.AsNoTracking()
             .FirstOrDefaultAsync(s => s.MeetingId == meetingId);
@@ -308,7 +308,7 @@ public class MeetingMinutesController : ControllerBase
             return Unauthorized();
 
         if (!await CanAccessMeetingAsync(meetingId, userId, username, role))
-            return Unauthorized("Only meeting participants, host, or Admin can trigger minutes summary");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting participants, host, or Admin can trigger minutes summary");
 
         var meeting = await _db.Meetings.AsNoTracking().FirstOrDefaultAsync(m => m.Id == meetingId);
         if (meeting == null)

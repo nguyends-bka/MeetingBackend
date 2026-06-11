@@ -213,6 +213,40 @@ public class MeetingController : ControllerBase
         return ToActionResult(result);
     }
 
+    private async Task<bool> HasMeetingAccessAsync(Meeting meeting, string userId, string? userRole, string? username)
+    {
+        if (userRole == "Admin") return true;
+
+        var isPrimaryHost = string.Equals(meeting.HostIdentity, userId, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(username)
+                && string.Equals(meeting.HostIdentity, username.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (isPrimaryHost) return true;
+
+        var isCoHost = await MeetingHostAuth.IsCoHostAsync(_db, meeting.Id, userId, HttpContext.RequestAborted);
+        if (isCoHost) return true;
+
+        if (!string.IsNullOrWhiteSpace(username))
+        {
+            var normalizedUsername = username.Trim().ToLower();
+            var isInvited = await _db.MeetingInvitees
+                .AnyAsync(i => i.MeetingId == meeting.Id && i.Username.ToLower() == normalizedUsername, HttpContext.RequestAborted);
+            if (isInvited) return true;
+
+            var hasParticipated = await _db.MeetingParticipants
+                .AnyAsync(p => p.MeetingId == meeting.Id && (p.UserId == userId || p.Username.ToLower() == normalizedUsername), HttpContext.RequestAborted);
+            if (hasParticipated) return true;
+        }
+        else
+        {
+            var hasParticipated = await _db.MeetingParticipants
+                .AnyAsync(p => p.MeetingId == meeting.Id && p.UserId == userId, HttpContext.RequestAborted);
+            if (hasParticipated) return true;
+        }
+
+        return false;
+    }
+
     // ==========================
     // DANH SÁCH MỜI THAM GIA
     // ==========================
@@ -233,8 +267,8 @@ public class MeetingController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
 
-        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host or Admin can view invitees");
+        if (!await HasMeetingAccessAsync(meeting, userId, userRole, username))
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host, co-host, invitee, participant or Admin can view invitees");
 
         var inviteeRows = await _db.MeetingInvitees
             .AsNoTracking()
@@ -262,7 +296,8 @@ public class MeetingController : ControllerBase
         var userLangs = await _db.UserLanguages
             .AsNoTracking()
             .Where(ul => namesToResolve.Contains(ul.User.Username.ToLower()) && ul.IsPrimary)
-            .ToDictionaryAsync(ul => ul.User.Username.ToLower(), ul => ul.LanguageCode);
+            .Select(ul => new { Username = ul.User.Username.ToLower(), ul.LanguageCode })
+            .ToDictionaryAsync(x => x.Username, x => x.LanguageCode);
 
         var list = inviteeRows.Select(row =>
         {
@@ -299,7 +334,7 @@ public class MeetingController : ControllerBase
             return NotFound("Meeting not found");
 
         if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host or Admin can add invitees");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or Admin can add invitees");
 
         var targetUsername = request.Username.Trim();
         var target = await _db.Users
@@ -369,7 +404,7 @@ public class MeetingController : ControllerBase
             return NotFound("Meeting not found");
 
         if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, actorUsername))
-            return Unauthorized("Only meeting host or Admin can remove invitees");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or Admin can remove invitees");
 
         var target = Uri.UnescapeDataString(username ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(target))
@@ -405,8 +440,8 @@ public class MeetingController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
 
-        if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host or Admin can view co-hosts");
+        if (!await HasMeetingAccessAsync(meeting, userId, userRole, username))
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host, co-host, invitee, participant or Admin can view co-hosts");
 
         var rows = await _db.MeetingCoHosts
             .AsNoTracking()
@@ -466,7 +501,7 @@ public class MeetingController : ControllerBase
             return NotFound("Meeting not found");
 
         if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host or Admin can promote invitees");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or Admin can promote invitees");
 
         var targetUsername = request.Username.Trim();
         var inviteeRow = await _db.MeetingInvitees
@@ -532,7 +567,7 @@ public class MeetingController : ControllerBase
         if (meeting == null)
             return NotFound("Meeting not found");
         if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host or Admin can change role");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or Admin can change role");
 
         var targetUsername = request.Username.Trim();
         var cohost = await _db.MeetingCoHosts
@@ -592,7 +627,7 @@ public class MeetingController : ControllerBase
             return NotFound("Meeting not found");
 
         if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, actorUsername))
-            return Unauthorized("Only meeting host or Admin can remove co-hosts");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or Admin can remove co-hosts");
 
         var decoded = Uri.UnescapeDataString(hostUserId ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(decoded))
@@ -643,7 +678,7 @@ public class MeetingController : ControllerBase
             return NotFound("Meeting not found");
 
         if (userRole != "Admin" && !await MeetingHostAuth.IsAnyHostAsync(_db, meeting, userId, username))
-            return Unauthorized("Only meeting host or Admin can view history");
+            return StatusCode(StatusCodes.Status403Forbidden, "Only meeting host or Admin can view history");
 
         var participants = await _db.MeetingParticipants
             .Where(p => p.MeetingId == meetingId)
