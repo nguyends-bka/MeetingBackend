@@ -48,6 +48,9 @@ public class AuthController : ControllerBase
         var result = await _authApplicationService.LoginWithFaceAsync(req, HttpContext.RequestAborted);
         return result.Status switch
         {
+            AuthActionStatus.Ok => Ok(result.Data),
+            AuthActionStatus.BadRequest => BadRequest(new { message = result.Message }),
+            AuthActionStatus.Unauthorized => Unauthorized(new { message = result.Message }),
             _ => BadRequest(new { message = "Yeu cau khong hop le" }),
         };
     }

@@ -252,7 +252,25 @@ public class MeetingApplicationService : IMeetingApplicationService
                 .Select(c => c.MeetingId)
                 .ToListAsync(cancellationToken);
             coHostMeetingIdSet = coIds.ToHashSet();
-            query = query.Where(m => m.HostIdentity == userId || coHostMeetingIdSet.Contains(m.Id));
+
+            var invitedMeetingIds = await _db.MeetingInvitees
+                .AsNoTracking()
+                .Where(i => i.Username.ToLower() == username.Trim().ToLower())
+                .Select(i => i.MeetingId)
+                .ToListAsync(cancellationToken);
+            var invitedMeetingIdSet = invitedMeetingIds.ToHashSet();
+
+            var participatedMeetingIds = await _db.MeetingParticipants
+                .AsNoTracking()
+                .Where(p => p.UserId == userId || p.Username.ToLower() == username.Trim().ToLower())
+                .Select(p => p.MeetingId)
+                .ToListAsync(cancellationToken);
+            var participatedMeetingIdSet = participatedMeetingIds.ToHashSet();
+
+            query = query.Where(m => m.HostIdentity == userId 
+                                  || coHostMeetingIdSet.Contains(m.Id)
+                                  || invitedMeetingIdSet.Contains(m.Id)
+                                  || participatedMeetingIdSet.Contains(m.Id));
         }
 
         var meetings = await query
