@@ -13,6 +13,11 @@ public class LlmSummaryResult
     public string? JobId { get; set; }
 }
 
+public class NonRetryableLlmException : Exception
+{
+    public NonRetryableLlmException(string message) : base(message) { }
+}
+
 public class LlmMinutesSummaryClient
 {
     private readonly IHttpClientFactory _httpClientFactory;
@@ -87,9 +92,9 @@ public class LlmMinutesSummaryClient
                 }
 
                 _logger.LogError("[AI Summary] Gọi LLM thất bại. Mã lỗi: {StatusCode}. Chi tiết: {Body}", response.StatusCode, responseBody);
-                throw new HttpRequestException($"LLM API returned status code {response.StatusCode}: {responseBody}");
+                throw new NonRetryableLlmException($"LLM API returned status code {response.StatusCode}: {responseBody}");
             }
-            catch (Exception ex) when (retry < maxRetries && ex is not OperationCanceledException)
+            catch (Exception ex) when (retry < maxRetries && ex is not OperationCanceledException && ex is not NonRetryableLlmException)
             {
                 _logger.LogWarning(ex, "[AI Summary] Lỗi kết nối khi gọi LLM. Đang tự động thử lại lần {Retry}/{Max} sau {Delay}ms...", 
                     retry + 1, maxRetries, delayMs);
