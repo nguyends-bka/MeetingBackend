@@ -39,7 +39,10 @@ public class RecordingFileWatcherService : BackgroundService
                     .Where(r => r.OutputFilePath != null
                                 && r.EndedAtUtc != null
                                 && r.EndedAtUtc >= cutoff
-                                && (r.Status == null || r.Status.ToLower() != "completed"))
+                                && r.Status != "Completed"
+                                && r.Status != "Failed"
+                                && r.Status != "completed"
+                                && r.Status != "failed")
                     .ToListAsync(stoppingToken);
 
                 if (candidates.Count > 0)
@@ -56,6 +59,16 @@ public class RecordingFileWatcherService : BackgroundService
                             rec.Status = "Completed";
                             rec.ErrorMessage = null;
                             _logger.LogInformation("Found recording file for {RecordingId} at {Path}", rec.Id, resolved);
+                        }
+                        else if (rec.EndedAtUtc.HasValue)
+                        {
+                            var age = DateTime.UtcNow - rec.EndedAtUtc.Value;
+                            if (age > TimeSpan.FromMinutes(2))
+                            {
+                                rec.Status = "Failed";
+                                rec.ErrorMessage = "Recording output was not generated. Ensure at least one participant publishes audio/video during the meeting.";
+                                _logger.LogWarning("Recording file not found for {RecordingId} after 2 minutes. Marking as Failed.", rec.Id);
+                            }
                         }
                     }
 
@@ -131,9 +144,14 @@ public class RecordingFileWatcherService : BackgroundService
 
         foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            var rootWithSeparator = roots.FirstOrDefault() ?? string.Empty;
-            var isInAllowedRoot = candidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(candidate, rootWithSeparator, StringComparison.OrdinalIgnoreCase);
+            var isInAllowedRoot = roots.Any(r => {
+                var root = Path.GetFullPath(r);
+                var rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar)
+                    ? root
+                    : root + Path.DirectorySeparatorChar;
+                return candidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(candidate, root, StringComparison.OrdinalIgnoreCase);
+            });
             if (!isInAllowedRoot) continue;
 
             if (System.IO.File.Exists(candidate))

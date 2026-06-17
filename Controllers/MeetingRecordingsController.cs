@@ -179,30 +179,21 @@ public class MeetingRecordingsController : ControllerBase
 
     private MeetingRecordingDto ToDto(MeetingRecording r)
     {
-        var hasFile = TryResolvePhysicalFilePath(r.OutputFilePath, out var physicalPath)
-            && System.IO.File.Exists(physicalPath);
-        var status = r.Status;
-        if (string.Equals(r.Status, "Completed", StringComparison.OrdinalIgnoreCase) && !hasFile)
-        {
-            status = "Failed";
-        }
-
+        var isCompleted = string.Equals(r.Status, "Completed", StringComparison.OrdinalIgnoreCase);
         return new MeetingRecordingDto
         {
             Id = r.Id,
             MeetingId = r.MeetingId,
             EgressId = r.EgressId,
-            Status = status,
+            Status = r.Status,
             OutputFilePath = r.OutputFilePath,
             StartedAtUtc = r.StartedAtUtc,
             EndedAtUtc = r.EndedAtUtc,
             StartedByUserId = r.StartedByUserId,
             StartedByName = r.StartedByName,
-            ErrorMessage = hasFile
-                ? r.ErrorMessage
-                : (r.ErrorMessage ?? "Recording output file is unavailable"),
+            ErrorMessage = r.ErrorMessage,
             PlaybackEndpoint = $"/api/meeting/{r.MeetingId}/recordings/{r.Id}/file",
-            IsFileAvailable = hasFile,
+            IsFileAvailable = isCompleted,
         };
     }
 
@@ -288,17 +279,6 @@ public class MeetingRecordingsController : ControllerBase
         if (hasActiveRecording)
             return Conflict("Meeting already has an active recording");
 
-        var (canCheckTracks, hasMediaTrack, _) = await _egress.HasActiveMediaTrackAsync(
-            meeting.RoomName,
-            HttpContext.RequestAborted);
-
-        // Track pre-check is best-effort. If backend cannot query RoomService due to permission/network,
-        // do not hard-block start recording.
-        // Do not hard-block recording when there is temporarily no active media.
-        // In real meetings, participants may turn camera/mic on after recording starts.
-        _ = canCheckTracks;
-        _ = hasMediaTrack;
-
         var fileName = $"{DateTime.UtcNow:yyyyMMdd_HHmmss}.mp4";
         var outputFilePath = BuildStoredOutputPath(meetingId, fileName);
         var egressOutputPath = BuildEgressOutputPath(meetingId, fileName);
@@ -366,32 +346,8 @@ public class MeetingRecordingsController : ControllerBase
         }
 
         recording.EndedAtUtc = DateTime.UtcNow;
-
-        // Wait for file flush to mounted storage before final status (allow longer timeout).
-        var hasFile = false;
-        for (var i = 0; i < 90; i++)
-        {
-            if (TryResolvePhysicalFilePath(recording.OutputFilePath, out var resolvedPath)
-                && System.IO.File.Exists(resolvedPath))
-            {
-                hasFile = true;
-                break;
-            }
-
-            await Task.Delay(TimeSpan.FromSeconds(1), HttpContext.RequestAborted);
-        }
-
-        if (hasFile)
-        {
-            recording.Status = "Completed";
-            recording.ErrorMessage = null;
-        }
-        else
-        {
-            recording.Status = "Failed";
-            recording.ErrorMessage =
-                "Recording output was not generated yet. Ensure at least one participant publishes audio during the meeting and try recording again.";
-        }
+        recording.Status = "Stopping";
+        recording.ErrorMessage = null;
 
         await _db.SaveChangesAsync();
 
