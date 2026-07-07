@@ -231,6 +231,147 @@ public class AdminController : ControllerBase
     }
 
     // ==========================
+    // THỐNG KÊ & PHÂN TÍCH (Admin only)
+    // ==========================
+    [HttpGet("analytics")]
+    public async Task<IActionResult> GetAnalytics([FromQuery] int days = 30)
+    {
+        if (days < 7) days = 7;
+        if (days > 365) days = 365;
+
+        var now = DateTime.UtcNow;
+        var since = now.Date.AddDays(-(days - 1)); // bao gồm cả hôm nay
+
+        // ── KPI tổng ─────────────────────────────────────────────
+        var meetingStatusCounts = await _db.Meetings
+            .GroupBy(m => m.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        int CountStatus(MeetingStatus s) =>
+            meetingStatusCounts.FirstOrDefault(x => x.Status == s)?.Count ?? 0;
+
+        var totalMeetings = meetingStatusCounts.Sum(x => x.Count);
+        var totalParticipants = await _db.MeetingParticipants.CountAsync();
+        var totalUsers = await _db.Users.CountAsync();
+        var totalRecordings = await _db.MeetingRecordings.CountAsync();
+
+        // Thời lượng trung bình (chỉ tính cuộc họp đã kết thúc có đủ mốc thời gian)
+        var endedWithTimes = await _db.Meetings
+            .Where(m => m.StartedAt != null && m.EndedAt != null && m.EndedAt > m.StartedAt)
+            .Select(m => new { m.StartedAt, m.EndedAt })
+            .ToListAsync();
+        var avgDuration = endedWithTimes.Count > 0
+            ? endedWithTimes.Average(x => (x.EndedAt!.Value - x.StartedAt!.Value).TotalMinutes)
+            : 0d;
+
+        var meetingsInRange = await _db.Meetings.CountAsync(m => m.CreatedAt >= since);
+        var newUsersInRange = await _db.Users.CountAsync(u => u.CreatedAt >= since);
+
+        // ── Chuỗi theo ngày ──────────────────────────────────────
+        var meetingsByDay = (await _db.Meetings
+                .Where(m => m.CreatedAt >= since)
+                .Select(m => m.CreatedAt)
+                .ToListAsync())
+            .GroupBy(d => d.Date)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var usersByDay = (await _db.Users
+                .Where(u => u.CreatedAt >= since)
+                .Select(u => u.CreatedAt)
+                .ToListAsync())
+            .GroupBy(d => d.Date)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var series = new List<TimeSeriesPointDto>();
+        for (var i = 0; i < days; i++)
+        {
+            var day = since.AddDays(i);
+            series.Add(new TimeSeriesPointDto
+            {
+                Date = day.ToString("yyyy-MM-dd"),
+                Meetings = meetingsByDay.TryGetValue(day, out var mc) ? mc : 0,
+                NewUsers = usersByDay.TryGetValue(day, out var uc) ? uc : 0,
+            });
+        }
+
+        // ── Phân bố trạng thái ───────────────────────────────────
+        var statusBreakdown = meetingStatusCounts
+            .Select(x => new StatusSliceDto { Status = x.Status.ToString().ToLower(), Count = x.Count })
+            .ToList();
+
+        // ── Phân bố theo giờ tạo họp ─────────────────────────────
+        var allCreatedHours = await _db.Meetings.Select(m => m.CreatedAt).ToListAsync();
+        var hourCounts = allCreatedHours
+            .GroupBy(d => d.Hour)
+            .ToDictionary(g => g.Key, g => g.Count());
+        var hourDistribution = Enumerable.Range(0, 24)
+            .Select(h => new HourBucketDto { Hour = h, Count = hourCounts.TryGetValue(h, out var c) ? c : 0 })
+            .ToList();
+
+        // ── Top host ─────────────────────────────────────────────
+        var hostGroups = await _db.Meetings
+            .Where(m => m.HostIdentity != null && m.HostIdentity != "")
+            .GroupBy(m => m.HostIdentity)
+            .Select(g => new { HostIdentity = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .Take(5)
+            .ToListAsync();
+
+        var hostIds = hostGroups.Select(x => x.HostIdentity).ToList();
+        var hostGuids = hostIds
+            .Select(x => Guid.TryParse(x, out var g) ? g : Guid.Empty)
+            .Where(x => x != Guid.Empty)
+            .ToList();
+        var hostUsernames = hostIds.Where(x => !Guid.TryParse(x, out _)).ToList();
+
+        var hostUsers = await _db.Users.AsNoTracking()
+            .Where(u => hostGuids.Contains(u.Id) || hostUsernames.Contains(u.Username))
+            .Select(u => new { u.Id, u.Username, u.FullName })
+            .ToListAsync();
+        var hostById = hostUsers.ToDictionary(u => u.Id.ToString().ToLower(), u => u);
+        var hostByUsername = hostUsers.ToDictionary(u => u.Username.ToLower(), u => u);
+
+        string ResolveHostName(string identity)
+        {
+            var key = identity.ToLower();
+            if (hostById.TryGetValue(key, out var u) || hostByUsername.TryGetValue(key, out u))
+                return !string.IsNullOrWhiteSpace(u.FullName) ? u.FullName! : u.Username;
+            return identity;
+        }
+
+        var topHosts = hostGroups.Select(x => new TopHostDto
+        {
+            HostIdentity = x.HostIdentity,
+            HostName = ResolveHostName(x.HostIdentity),
+            MeetingCount = x.Count,
+        }).ToList();
+
+        return Ok(new AnalyticsResponseDto
+        {
+            RangeDays = days,
+            Summary = new AnalyticsSummaryDto
+            {
+                TotalMeetings = totalMeetings,
+                LiveMeetings = CountStatus(MeetingStatus.Live),
+                EndedMeetings = CountStatus(MeetingStatus.Ended),
+                UpcomingMeetings = CountStatus(MeetingStatus.Upcoming),
+                CancelledMeetings = CountStatus(MeetingStatus.Cancelled),
+                TotalParticipants = totalParticipants,
+                TotalUsers = totalUsers,
+                TotalRecordings = totalRecordings,
+                AvgDurationMinutes = Math.Round(avgDuration, 1),
+                MeetingsInRange = meetingsInRange,
+                NewUsersInRange = newUsersInRange,
+            },
+            Series = series,
+            StatusBreakdown = statusBreakdown,
+            TopHosts = topHosts,
+            HourDistribution = hourDistribution,
+        });
+    }
+
+    // ==========================
     // LẤY DANH SÁCH TẤT CẢ MEETINGS (Admin only)
     // ==========================
     [HttpGet("meetings")]
