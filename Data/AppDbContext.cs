@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<MeetingCoHost> MeetingCoHosts => Set<MeetingCoHost>();
     public DbSet<MeetingNotification> MeetingNotifications => Set<MeetingNotification>();
     public DbSet<MeetingMinutesSummary> MeetingMinutesSummaries => Set<MeetingMinutesSummary>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
 
     // ── Danh mục Quốc gia / Ngôn ngữ ────────────────────────────────────────
@@ -116,6 +117,23 @@ public class AppDbContext : DbContext
                 .WithOne()
                 .HasForeignKey<MeetingMinutesSummary>(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AuditLog>(e =>
+        {
+            e.ToTable("AuditLogs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Category).HasMaxLength(50).IsRequired();
+            e.Property(x => x.Action).HasMaxLength(80).IsRequired();
+            e.Property(x => x.Severity).HasMaxLength(20).HasDefaultValue("info");
+            e.Property(x => x.ActorName).HasMaxLength(200);
+            e.Property(x => x.TargetId).HasMaxLength(100);
+            e.Property(x => x.TargetLabel).HasMaxLength(300);
+            e.Property(x => x.Message).HasMaxLength(1000).IsRequired();
+            e.Property(x => x.IpAddress).HasMaxLength(64);
+            e.HasIndex(x => x.CreatedAtUtc);
+            e.HasIndex(x => x.Category);
+            e.HasIndex(x => x.ActorUserId);
         });
 
         modelBuilder.Entity<OrganizationUnit>(e =>

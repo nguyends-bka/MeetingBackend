@@ -18,10 +18,12 @@ namespace MeetingBackend.Controllers;
 public class AdminController : ControllerBase
 {
     private readonly AppDbContext _db;
+    private readonly MeetingBackend.Services.Infrastructure.IAuditLogService _audit;
 
-    public AdminController(AppDbContext db)
+    public AdminController(AppDbContext db, MeetingBackend.Services.Infrastructure.IAuditLogService audit)
     {
         _db = db;
+        _audit = audit;
     }
 
     // ==========================
@@ -129,8 +131,17 @@ public class AdminController : ControllerBase
             return BadRequest(new { message = "Bạn không thể tự đổi role của chính mình" });
         }
 
+        var oldRole = user.Role;
         user.Role = request.Role;
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(
+            category: "Admin",
+            action: "user.role.update",
+            message: $"Đổi vai trò của {user.Username} từ {oldRole} thành {user.Role}",
+            actor: User,
+            targetId: user.Id.ToString(),
+            targetLabel: user.Username);
 
         var response = new UpdateUserRoleResponseDto
         {
@@ -173,8 +184,19 @@ public class AdminController : ControllerBase
             return BadRequest(new { message = "Không thể xóa user đang là chủ trì/đồng chủ trì cuộc họp. Vui lòng xóa hoặc chuyển quyền trước." });
         }
 
+        var deletedUsername = user.Username;
+        var deletedId = user.Id.ToString();
         _db.Users.Remove(user);
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(
+            category: "Admin",
+            action: "user.delete",
+            message: $"Xóa tài khoản {deletedUsername}",
+            actor: User,
+            targetId: deletedId,
+            targetLabel: deletedUsername,
+            severity: "warning");
 
         var response = new DeleteUserResponseDto
         {
@@ -321,8 +343,18 @@ public class AdminController : ControllerBase
         _db.MeetingParticipants.RemoveRange(participants);
 
         // Xóa meeting
+        var meetingTitle = meeting.Title;
         _db.Meetings.Remove(meeting);
         await _db.SaveChangesAsync();
+
+        await _audit.LogAsync(
+            category: "Admin",
+            action: "meeting.delete",
+            message: $"Xóa cuộc họp \"{meetingTitle}\"",
+            actor: User,
+            targetId: meetingId.ToString(),
+            targetLabel: meetingTitle,
+            severity: "warning");
 
         var response = new DeleteMeetingResponseDto
         {
@@ -330,5 +362,68 @@ public class AdminController : ControllerBase
         };
 
         return Ok(response);
+    }
+
+    // ==========================
+    // NHẬT KÝ HỆ THỐNG (Admin only)
+    // ==========================
+    [HttpGet("audit-logs")]
+    public async Task<IActionResult> GetAuditLogs(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? category = null,
+        [FromQuery] string? severity = null,
+        [FromQuery] string? search = null)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = _db.AuditLogs.AsNoTracking().AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(category))
+            query = query.Where(x => x.Category == category);
+
+        if (!string.IsNullOrWhiteSpace(severity))
+            query = query.Where(x => x.Severity == severity);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var s = search.Trim().ToLower();
+            query = query.Where(x =>
+                x.Message.ToLower().Contains(s) ||
+                (x.ActorName != null && x.ActorName.ToLower().Contains(s)) ||
+                (x.TargetLabel != null && x.TargetLabel.ToLower().Contains(s)));
+        }
+
+        var total = await query.CountAsync();
+
+        var items = await query
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(x => new AuditLogDto
+            {
+                Id = x.Id,
+                Category = x.Category,
+                Action = x.Action,
+                Severity = x.Severity,
+                ActorUserId = x.ActorUserId,
+                ActorName = x.ActorName,
+                TargetId = x.TargetId,
+                TargetLabel = x.TargetLabel,
+                Message = x.Message,
+                IpAddress = x.IpAddress,
+                At = new DateTimeOffset(DateTime.SpecifyKind(x.CreatedAtUtc, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+            })
+            .ToListAsync();
+
+        return Ok(new AuditLogPageDto
+        {
+            Items = items,
+            Total = total,
+            Page = page,
+            PageSize = pageSize,
+        });
     }
 }

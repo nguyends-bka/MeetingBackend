@@ -117,6 +117,8 @@ builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp,
     var timeout = Math.Max(1, options.TimeoutSeconds);
     client.Timeout = TimeSpan.FromSeconds(timeout);
 });
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<MeetingBackend.Services.Infrastructure.IAuditLogService, MeetingBackend.Services.Infrastructure.AuditLogService>();
 builder.Services.AddScoped<IFaceAuthService, FaceAuthService>();
 builder.Services.AddScoped<IAuthApplicationService, AuthApplicationService>();
 builder.Services.AddScoped<IMeetingApplicationService, MeetingApplicationService>();

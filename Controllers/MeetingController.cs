@@ -20,13 +20,16 @@ public class MeetingController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly IMeetingApplicationService _meetingApplicationService;
+    private readonly MeetingBackend.Services.Infrastructure.IAuditLogService _audit;
 
     public MeetingController(
         AppDbContext db,
-        IMeetingApplicationService meetingApplicationService)
+        IMeetingApplicationService meetingApplicationService,
+        MeetingBackend.Services.Infrastructure.IAuditLogService audit)
     {
         _db = db;
         _meetingApplicationService = meetingApplicationService;
+        _audit = audit;
     }
 
     private CurrentUserContext CurrentUser() => new()
@@ -125,6 +128,17 @@ public class MeetingController : ControllerBase
     public async Task<IActionResult> Create(CreateMeetingRequestDto request)
     {
         var result = await _meetingApplicationService.CreateAsync(CurrentUser(), request, HttpContext.RequestAborted);
+
+        if (result.Status == MeetingAppStatus.Ok)
+        {
+            await _audit.LogAsync(
+                category: "Meeting",
+                action: "meeting.create",
+                message: $"Tạo cuộc họp \"{request.Title}\"",
+                actor: User,
+                targetLabel: request.Title);
+        }
+
         return ToActionResult(result);
     }
 
@@ -873,6 +887,23 @@ public class MeetingController : ControllerBase
     public async Task<IActionResult> CancelMeeting(Guid meetingId)
     {
         var result = await _meetingApplicationService.CancelMeetingAsync(CurrentUser(), meetingId, HttpContext.RequestAborted);
+
+        if (result.Status == MeetingAppStatus.Ok)
+        {
+            var title = await _db.Meetings.AsNoTracking()
+                .Where(m => m.Id == meetingId)
+                .Select(m => m.Title)
+                .FirstOrDefaultAsync();
+            await _audit.LogAsync(
+                category: "Meeting",
+                action: "meeting.cancel",
+                message: $"Hủy cuộc họp \"{title ?? meetingId.ToString()}\"",
+                actor: User,
+                targetId: meetingId.ToString(),
+                targetLabel: title,
+                severity: "warning");
+        }
+
         return ToActionResult(result);
     }
 }

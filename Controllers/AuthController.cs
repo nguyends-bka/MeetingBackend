@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using MeetingBackend.DTOs.Auth;
 using MeetingBackend.Services.Auth;
+using MeetingBackend.Services.Infrastructure;
 
 namespace MeetingBackend.Controllers;
 
@@ -10,10 +11,12 @@ namespace MeetingBackend.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthApplicationService _authApplicationService;
+    private readonly IAuditLogService _audit;
 
-    public AuthController(IAuthApplicationService authApplicationService)
+    public AuthController(IAuthApplicationService authApplicationService, IAuditLogService audit)
     {
         _authApplicationService = authApplicationService;
+        _audit = audit;
     }
 
     [HttpPost("register")]
@@ -33,6 +36,13 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Login(LoginRequestDto req)
     {
         var result = await _authApplicationService.LoginAsync(req, HttpContext.RequestAborted);
+
+        var username = req.Username?.Trim() ?? string.Empty;
+        if (result.Status == AuthActionStatus.Ok)
+            await _audit.LogAsync("Auth", "login.success", $"{username} đăng nhập thành công", targetLabel: username);
+        else
+            await _audit.LogAsync("Auth", "login.failed", $"Đăng nhập thất bại cho \"{username}\"", targetLabel: username, severity: "warning");
+
         return result.Status switch
         {
             AuthActionStatus.Ok => Ok(result.Data),
