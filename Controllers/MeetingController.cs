@@ -21,15 +21,18 @@ public class MeetingController : ControllerBase
     private readonly AppDbContext _db;
     private readonly IMeetingApplicationService _meetingApplicationService;
     private readonly MeetingBackend.Services.Infrastructure.IAuditLogService _audit;
+    private readonly MeetingBackend.Services.Infrastructure.INotificationBroadcaster _notificationBroadcaster;
 
     public MeetingController(
         AppDbContext db,
         IMeetingApplicationService meetingApplicationService,
-        MeetingBackend.Services.Infrastructure.IAuditLogService audit)
+        MeetingBackend.Services.Infrastructure.IAuditLogService audit,
+        MeetingBackend.Services.Infrastructure.INotificationBroadcaster notificationBroadcaster)
     {
         _db = db;
         _meetingApplicationService = meetingApplicationService;
         _audit = audit;
+        _notificationBroadcaster = notificationBroadcaster;
     }
 
     private CurrentUserContext CurrentUser() => new()
@@ -76,6 +79,9 @@ public class MeetingController : ControllerBase
             });
 
             await _db.SaveChangesAsync(ct);
+
+            // Đẩy real-time (SSE) để chuông của người nhận cập nhật ngay, không cần chờ poll.
+            await PushNotificationEventAsync(recipientUserId);
         }
         catch (PostgresException ex) when (ex.SqlState == "42P01")
         {
@@ -103,6 +109,7 @@ public class MeetingController : ControllerBase
                 });
 
                 await _db.SaveChangesAsync(ct);
+                await PushNotificationEventAsync(recipientUserId);
             }
             catch (Exception retryEx)
             {
@@ -117,6 +124,22 @@ public class MeetingController : ControllerBase
                 ? $"{pg.SqlState} {pg.MessageText}"
                 : (ex.InnerException?.Message ?? ex.Message);
             Console.WriteLine($"Notification write failed ({type}): {details}");
+        }
+    }
+
+    /// <summary>
+    /// Báo cho client (qua SSE) rằng có thông báo mới. Chỉ gửi tín hiệu "refresh";
+    /// client sẽ tự gọi API lấy danh sách mới nhất. Không bao giờ ném lỗi.
+    /// </summary>
+    private async Task PushNotificationEventAsync(string recipientUserId)
+    {
+        try
+        {
+            await _notificationBroadcaster.PushAsync(recipientUserId, "notification", "{\"type\":\"new\"}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Push SSE notification failed: {ex.Message}");
         }
     }
 
