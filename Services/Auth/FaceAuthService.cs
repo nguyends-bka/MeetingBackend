@@ -1,6 +1,8 @@
 using MeetingBackend.Data;
 using MeetingBackend.Entities;
+using MeetingBackend.Options;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace MeetingBackend.Services;
 
@@ -8,19 +10,28 @@ public class FaceAuthService : IFaceAuthService
 {
     private const float DefaultThreshold = 0.85f;
 
+    // Hệ số giải lượng tử int8 -> float32 (giá trị / 127).
+    private const float Int8Scale = 127f;
+
     private readonly AppDbContext _db;
     private readonly IFaceMatchingClient _faceMatchingClient;
+    private readonly FaceMatchingOptions _options;
     private readonly ILogger<FaceAuthService> _logger;
 
     public FaceAuthService(
         AppDbContext db,
         IFaceMatchingClient faceMatchingClient,
+        IOptions<FaceMatchingOptions> options,
         ILogger<FaceAuthService> logger)
     {
         _db = db;
         _faceMatchingClient = faceMatchingClient;
+        _options = options.Value;
         _logger = logger;
     }
+
+    private bool UseRemote =>
+        string.Equals(_options.Mode, FaceMatchingModes.Remote, StringComparison.OrdinalIgnoreCase);
 
     public async Task<FaceAuthResult> AuthenticateAsync(int[] embedding, CancellationToken cancellationToken = default)
     {
@@ -42,6 +53,9 @@ public class FaceAuthService : IFaceAuthService
             };
         }
 
+        var useRemote = UseRemote;
+        var probeFloats = useRemote ? Array.Empty<float>() : ToFloatArray(embedding);
+
         var candidates = await _db.Users
             .Where(u => u.FaceEmbedding != null)
             .ToListAsync(cancellationToken);
@@ -62,13 +76,13 @@ public class FaceAuthService : IFaceAuthService
         {
             if (candidate.FaceEmbedding == null) continue;
 
-            var score = await BestSimilarityFromStoredEmbeddings(
-                candidate.FaceEmbedding,
-                probeBytes,
-                cancellationToken);
+            var score = useRemote
+                ? await BestSimilarityFromStoredEmbeddings(candidate.FaceEmbedding, probeBytes, cancellationToken)
+                : BestLocalCosineFromStoredEmbeddings(candidate.FaceEmbedding, probeFloats);
 
             _logger.LogInformation(
-                "FaceLogin candidate={Username} score={Score:F4} threshold={Threshold:F2}",
+                "FaceLogin mode={Mode} candidate={Username} score={Score:F4} threshold={Threshold:F2}",
+                useRemote ? FaceMatchingModes.Remote : FaceMatchingModes.Local,
                 candidate.Username,
                 score,
                 DefaultThreshold);
@@ -130,6 +144,7 @@ public class FaceAuthService : IFaceAuthService
         return true;
     }
 
+    // ===== Mode "Remote": gọi service FaceMatching qua HTTP (cách cũ) =====
     private async Task<float> BestSimilarityFromStoredEmbeddings(short[,] stored, byte[] probe, CancellationToken cancellationToken)
     {
         if (probe.Length == 0 || stored.Length == 0) return 0;
@@ -162,5 +177,73 @@ public class FaceAuthService : IFaceAuthService
         }
 
         return best;
+    }
+
+    // ===== Mode "Local": int8 -> float32 (/127) rồi tính cosine similarity =====
+
+    /// <summary>
+    /// Chuyển embedding int8 (-128..127, đã kiểm tra) sang float32 bằng cách chia cho 127.
+    /// </summary>
+    private static float[] ToFloatArray(int[] source)
+    {
+        var vector = new float[source.Length];
+        for (var i = 0; i < source.Length; i++)
+        {
+            vector[i] = source[i] / Int8Scale;
+        }
+        return vector;
+    }
+
+    /// <summary>
+    /// Với mỗi embedding đã lưu (mỗi hàng của mảng), chuyển int8 -> float32
+    /// rồi tính cosine similarity với probe; trả về điểm cao nhất.
+    /// </summary>
+    private static float BestLocalCosineFromStoredEmbeddings(short[,] stored, float[] probe)
+    {
+        if (probe.Length == 0 || stored.Length == 0) return 0;
+
+        var rows = stored.GetLength(0);
+        var cols = stored.GetLength(1);
+
+        if (rows <= 0 || cols <= 0 || cols != probe.Length) return 0;
+
+        var best = float.MinValue;
+        var segment = new float[cols];
+
+        for (var r = 0; r < rows; r++)
+        {
+            for (var c = 0; c < cols; c++)
+            {
+                var value = stored[r, c];
+                if (value < -128 || value > 127)
+                {
+                    return 0;
+                }
+                segment[c] = value / Int8Scale;
+            }
+
+            var score = CosineSimilarity(segment, probe);
+            if (score > best)
+            {
+                best = score;
+            }
+        }
+
+        return best;
+    }
+
+    private static float CosineSimilarity(float[] a, float[] b)
+    {
+        double dot = 0, normA = 0, normB = 0;
+        for (var i = 0; i < a.Length; i++)
+        {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+
+        if (normA <= 0 || normB <= 0) return 0;
+
+        return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB)));
     }
 }
