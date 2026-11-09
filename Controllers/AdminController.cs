@@ -19,12 +19,62 @@ public class AdminController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly MeetingBackend.Services.Infrastructure.IAuditLogService _audit;
+    private readonly MeetingBackend.Services.Infrastructure.IFaceMatchSettingsService _faceMatchSettings;
 
-    public AdminController(AppDbContext db, MeetingBackend.Services.Infrastructure.IAuditLogService audit)
+    public AdminController(
+        AppDbContext db,
+        MeetingBackend.Services.Infrastructure.IAuditLogService audit,
+        MeetingBackend.Services.Infrastructure.IFaceMatchSettingsService faceMatchSettings)
     {
         _db = db;
         _audit = audit;
+        _faceMatchSettings = faceMatchSettings;
     }
+
+    // ==========================
+    // NGƯỠNG NHẬN DIỆN KHUÔN MẶT
+    // ==========================
+    [HttpGet("settings/face-threshold")]
+    public async Task<IActionResult> GetFaceThreshold(CancellationToken cancellationToken)
+    {
+        var threshold = await _faceMatchSettings.GetThresholdAsync(cancellationToken);
+        return Ok(BuildFaceThresholdDto(threshold));
+    }
+
+    [HttpPut("settings/face-threshold")]
+    public async Task<IActionResult> UpdateFaceThreshold(
+        [FromBody] UpdateFaceThresholdRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        const double min = MeetingBackend.Services.Infrastructure.FaceMatchSettingsService.MinThreshold;
+        const double max = MeetingBackend.Services.Infrastructure.FaceMatchSettingsService.MaxThreshold;
+
+        if (request.Threshold is not double requested || double.IsNaN(requested) || requested < min || requested > max)
+        {
+            return BadRequest(new { message = $"Ngưỡng phải nằm trong khoảng {min:0.00} đến {max:0.00}" });
+        }
+
+        var threshold = Math.Round(requested, 2);
+        var oldThreshold = await _faceMatchSettings.GetThresholdAsync(cancellationToken);
+        await _faceMatchSettings.SetThresholdAsync(threshold, cancellationToken);
+
+        await _audit.LogAsync(
+            category: "Admin",
+            action: "settings.face_threshold.update",
+            message: $"Đổi ngưỡng nhận diện khuôn mặt từ {oldThreshold:0.00} thành {threshold:0.00}",
+            actor: User,
+            severity: "warning");
+
+        return Ok(BuildFaceThresholdDto(threshold));
+    }
+
+    private static FaceThresholdDto BuildFaceThresholdDto(double threshold) => new()
+    {
+        Threshold = threshold,
+        DefaultThreshold = MeetingBackend.Services.Infrastructure.FaceMatchSettingsService.DefaultThreshold,
+        MinThreshold = MeetingBackend.Services.Infrastructure.FaceMatchSettingsService.MinThreshold,
+        MaxThreshold = MeetingBackend.Services.Infrastructure.FaceMatchSettingsService.MaxThreshold,
+    };
 
     // ==========================
     // LẤY DANH SÁCH TẤT CẢ USERS

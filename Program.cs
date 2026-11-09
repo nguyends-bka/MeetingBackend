@@ -120,6 +120,7 @@ builder.Services.AddHttpClient<IFaceMatchingClient, FaceMatchingHttpClient>((sp,
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<MeetingBackend.Services.Infrastructure.IAuditLogService, MeetingBackend.Services.Infrastructure.AuditLogService>();
 builder.Services.AddSingleton<MeetingBackend.Services.Infrastructure.INotificationBroadcaster, MeetingBackend.Services.Infrastructure.NotificationBroadcaster>();
+builder.Services.AddScoped<MeetingBackend.Services.Infrastructure.IFaceMatchSettingsService, MeetingBackend.Services.Infrastructure.FaceMatchSettingsService>();
 builder.Services.AddScoped<IFaceAuthService, FaceAuthService>();
 builder.Services.AddScoped<IAuthApplicationService, AuthApplicationService>();
 builder.Services.AddScoped<IMeetingApplicationService, MeetingApplicationService>();

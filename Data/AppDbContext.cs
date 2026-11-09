@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<MeetingNotification> MeetingNotifications => Set<MeetingNotification>();
     public DbSet<MeetingMinutesSummary> MeetingMinutesSummaries => Set<MeetingMinutesSummary>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<SystemSetting> SystemSettings => Set<SystemSetting>();
 
 
     // ── Danh mục Quốc gia / Ngôn ngữ ────────────────────────────────────────
@@ -117,6 +118,14 @@ public class AppDbContext : DbContext
                 .WithOne()
                 .HasForeignKey<MeetingMinutesSummary>(x => x.MeetingId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SystemSetting>(e =>
+        {
+            e.ToTable("SystemSettings");
+            e.HasKey(x => x.Key);
+            e.Property(x => x.Key).HasMaxLength(100);
+            e.Property(x => x.Value).HasMaxLength(500).IsRequired();
         });
 
         modelBuilder.Entity<AuditLog>(e =>

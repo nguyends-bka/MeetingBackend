@@ -9,21 +9,22 @@ namespace MeetingBackend.Services;
 
 public class FaceAuthService : IFaceAuthService
 {
-    private const float DefaultThreshold = 0.85f;
-
     private readonly AppDbContext _db;
     private readonly IFaceMatchingClient _faceMatchingClient;
+    private readonly MeetingBackend.Services.Infrastructure.IFaceMatchSettingsService _faceMatchSettings;
     private readonly FaceMatchingOptions _options;
     private readonly ILogger<FaceAuthService> _logger;
 
     public FaceAuthService(
         AppDbContext db,
         IFaceMatchingClient faceMatchingClient,
+        MeetingBackend.Services.Infrastructure.IFaceMatchSettingsService faceMatchSettings,
         IOptions<FaceMatchingOptions> options,
         ILogger<FaceAuthService> logger)
     {
         _db = db;
         _faceMatchingClient = faceMatchingClient;
+        _faceMatchSettings = faceMatchSettings;
         _options = options.Value;
         _logger = logger;
     }
@@ -75,6 +76,8 @@ public class FaceAuthService : IFaceAuthService
             };
         }
 
+        var threshold = (float)await _faceMatchSettings.GetThresholdAsync(cancellationToken);
+
         User? bestUser = null;
         var bestScore = float.MinValue;
 
@@ -91,7 +94,7 @@ public class FaceAuthService : IFaceAuthService
                 useRemote ? FaceMatchingModes.Remote : FaceMatchingModes.Local,
                 candidate.Username,
                 score,
-                DefaultThreshold);
+                threshold);
 
             if (score > bestScore)
             {
@@ -103,10 +106,10 @@ public class FaceAuthService : IFaceAuthService
         _logger.LogInformation(
             "FaceLogin best_score={BestScore:F4} threshold={Threshold:F2} matched_user={MatchedUser}",
             bestScore,
-            DefaultThreshold,
+            threshold,
             bestUser?.Username ?? "<none>");
 
-        if (bestUser == null || bestScore < DefaultThreshold)
+        if (bestUser == null || bestScore < threshold)
         {
             return new FaceAuthResult
             {
