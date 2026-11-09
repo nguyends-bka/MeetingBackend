@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using MeetingBackend.Data;
 using MeetingBackend.Entities;
 using MeetingBackend.Options;
@@ -9,9 +10,6 @@ namespace MeetingBackend.Services;
 public class FaceAuthService : IFaceAuthService
 {
     private const float DefaultThreshold = 0.85f;
-
-    // Hệ số giải lượng tử int8 -> float32 (giá trị / 127).
-    private const float Int8Scale = 127f;
 
     private readonly AppDbContext _db;
     private readonly IFaceMatchingClient _faceMatchingClient;
@@ -54,7 +52,15 @@ public class FaceAuthService : IFaceAuthService
         }
 
         var useRemote = UseRemote;
-        var probeFloats = useRemote ? Array.Empty<float>() : ToFloatArray(embedding);
+        var probeFloats = Array.Empty<float>();
+        if (!useRemote && !TryDecodeFloat32(probeBytes, out probeFloats))
+        {
+            return new FaceAuthResult
+            {
+                IsSuccess = false,
+                ErrorMessage = "Embedding không hợp lệ"
+            };
+        }
 
         var candidates = await _db.Users
             .Where(u => u.FaceEmbedding != null)
@@ -179,24 +185,32 @@ public class FaceAuthService : IFaceAuthService
         return best;
     }
 
-    // ===== Mode "Local": int8 -> float32 (/127) rồi tính cosine similarity =====
+    // ===== Mode "Local": 512 byte -> 128 float32 (IEEE 754 little-endian) rồi tính cosine similarity =====
 
     /// <summary>
-    /// Chuyển embedding int8 (-128..127, đã kiểm tra) sang float32 bằng cách chia cho 127.
+    /// Giải mã mảng byte thô thành float32 little-endian (4 byte / phần tử),
+    /// tương đương struct.unpack("&lt;128f", raw) bên Python.
     /// </summary>
-    private static float[] ToFloatArray(int[] source)
+    private static bool TryDecodeFloat32(ReadOnlySpan<byte> raw, out float[] vector)
     {
-        var vector = new float[source.Length];
-        for (var i = 0; i < source.Length; i++)
+        vector = Array.Empty<float>();
+        if (raw.Length == 0 || raw.Length % sizeof(float) != 0) return false;
+
+        var result = new float[raw.Length / sizeof(float)];
+        for (var i = 0; i < result.Length; i++)
         {
-            vector[i] = source[i] / Int8Scale;
+            var value = BinaryPrimitives.ReadSingleLittleEndian(raw.Slice(i * sizeof(float), sizeof(float)));
+            if (!float.IsFinite(value)) return false;
+            result[i] = value;
         }
-        return vector;
+
+        vector = result;
+        return true;
     }
 
     /// <summary>
-    /// Với mỗi embedding đã lưu (mỗi hàng của mảng), chuyển int8 -> float32
-    /// rồi tính cosine similarity với probe; trả về điểm cao nhất.
+    /// Với mỗi embedding đã lưu (mỗi hàng: các giá trị -128..127 = byte thô),
+    /// giải mã sang float32 rồi tính cosine similarity với probe; trả về điểm cao nhất.
     /// </summary>
     private static float BestLocalCosineFromStoredEmbeddings(short[,] stored, float[] probe)
     {
@@ -205,10 +219,10 @@ public class FaceAuthService : IFaceAuthService
         var rows = stored.GetLength(0);
         var cols = stored.GetLength(1);
 
-        if (rows <= 0 || cols <= 0 || cols != probe.Length) return 0;
+        if (rows <= 0 || cols <= 0 || cols != probe.Length * sizeof(float)) return 0;
 
         var best = float.MinValue;
-        var segment = new float[cols];
+        var raw = new byte[cols];
 
         for (var r = 0; r < rows; r++)
         {
@@ -219,8 +233,10 @@ public class FaceAuthService : IFaceAuthService
                 {
                     return 0;
                 }
-                segment[c] = value / Int8Scale;
+                raw[c] = unchecked((byte)value); // tương đương x & 0xFF
             }
+
+            if (!TryDecodeFloat32(raw, out var segment)) continue;
 
             var score = CosineSimilarity(segment, probe);
             if (score > best)
@@ -229,17 +245,19 @@ public class FaceAuthService : IFaceAuthService
             }
         }
 
-        return best;
+        return best == float.MinValue ? 0 : best;
     }
 
     private static float CosineSimilarity(float[] a, float[] b)
     {
+        // Tính bằng double (float64) cho chính xác, giống numpy.
         double dot = 0, normA = 0, normB = 0;
         for (var i = 0; i < a.Length; i++)
         {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
+            double x = a[i], y = b[i];
+            dot += x * y;
+            normA += x * x;
+            normB += y * y;
         }
 
         if (normA <= 0 || normB <= 0) return 0;
